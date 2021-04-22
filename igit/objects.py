@@ -1,16 +1,10 @@
 
 from dataclasses import dataclass
 from intervaltree import IntervalTree, Interval
+from pydantic import BaseModel
 
-
-@dataclass
-class Object:
+class ObjectPacket(BaseModel):
     otype: str
-    size: int
-    content: bytes
+    content: str
+    encoder: str
         
-class Tree(IntervalTree):
-    pass
-
-class Blob(Interval):
-    pass

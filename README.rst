@@ -4,6 +4,10 @@ iGit
 
 Git-like interval versioning.
 
+
+**EXPERIMENTAL** Use at your own risk.
+
+
 .. image:: https://img.shields.io/pypi/v/igit.svg
         :target: https://pypi.python.org/pypi/igit
 
@@ -15,17 +19,20 @@ Git-like interval versioning.
         :alt: Documentation Status
 
 
-Git-like version control for data that is organized in a interval tree.
+Git-like version control of data that is organized using interval trees as well as the simple string->value trees used in file systems.
 Analogies to git:
 git <--> igit
 blob <--> blob
 filename <--> interval
 tree/folder <--> interval tree
 
-in iGit the basic structure being versioned is a hiearchy of intervals instead of a hierchy of files.
-An interval can contain data (analog of a file) or a tree of other intervals (analog of a folder).
-This kind of structure is useful e.g. when tracking arrays of data or 
-configuration parameters that have defined intervals of validity attached to them.
+in iGit the structure being versioned is a hiearchy of trees and blobs like git, only instead of just 
+supporting folder-like trees (string->value mapping) iGit supports interval trees as well.
+An interval tree maps intervals to data, data can contain a python object (analog of a file) or
+another tree (analog of a folder). This kind of structure is useful e.g. when tracking arrays of data or 
+configuration parameters that have defined intervals of validity attached to them. In these cases its useful
+to be able to associate a unique piece of data with an interval of two integers (e.g. an array index or timestamp)
+instead of a string of characters like a filename.
 
 
 * Free software: MIT
