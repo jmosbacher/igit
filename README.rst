@@ -20,24 +20,16 @@ Git-like interval versioning.
 
 
 Git-like version control of data that is organized using interval trees as well as the simple string->value trees used in file systems.
-<<<<<<< HEAD
 
 Analogies to git:
 
-===========  =============
-git          igit
------------  -------------
-blob         blob
-filename     interval
-tree/folder  interval-tree
-===========  =============
-=======
-Analogies to git:
-git <--> igit
-blob <--> blob
-filename <--> interval
-tree/folder <--> interval tree
->>>>>>> b6b188329965f1f95b9991901d19ec229186228d
+=========== =============
+git         igit
+----------- -------------
+blob        blob
+filename    interval
+tree/folder interval-tree
+=========== =============
 
 in iGit the structure being versioned is a hiearchy of trees and blobs like git, only instead of just 
 supporting folder-like trees (string->value mapping) iGit supports interval trees as well.
