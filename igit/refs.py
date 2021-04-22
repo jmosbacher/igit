@@ -1,31 +1,41 @@
 from dataclasses import dataclass, field
+from pydantic import BaseModel
 
 
-@dataclass
-class SymbolicRef:
+class SymbolicRef(BaseModel):
     pass
 
-@dataclass
-class ObjectRef(SymbolicRef):
+class Reference(BaseModel):
+    pass
+
+class ObjectRef(Reference):
     key: str
     otype: str
     size: int
+    encoder: str
 
-class Tag(SymbolicRef):
+class Tag(Reference):
     tree: ObjectRef
 
-@dataclass
-class Commit(SymbolicRef):
+class Commit(Reference):
     tree: ObjectRef
     comment: str
-    parents: tuple = None
-    author: str = ''
-    commiter: str = ''
-    
+    parent: ObjectRef = None
+    author: str = None
+    commiter: str = None
+
+    @property
+    def is_root(self):
+        return self.parent is None
+
+class MergeCommit(Commit):
+    parents: list
+
 @dataclass
 class Refs:
     heads: dict = field(default_factory=dict)
     tags: dict = field(default_factory=dict)
+
 
 class HEAD(SymbolicRef):
     pass

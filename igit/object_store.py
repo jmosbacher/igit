@@ -1,24 +1,23 @@
 
 import typing as ty
-import hashlib
-import pickle
-from abc import ABC, abstractmethod
-from .objects import IntervalTree, Interval
+from abc import ABC, abstractmethod, abstractstaticmethod
+from .objects import IntervalTree, Interval, ObjectPacket
 from .refs import ObjectRef, Commit, Tag
+from .trees import BaseTree
+from .encoders import ENCODERS, DEFAULT_ENCODER
 
-class BaseObjectStore(ABC):
-    OTYPES = {
-        "tree": IntervalTree,
-        "commit": Commit,
-        "tag": Tag,
-        "blob": Interval,
+OTYPES = {
+    "tree": BaseTree,
+    "commit": Commit,
+    "tag": Tag,
     }
-    
-    OTYPE_NAMES = {v:k for k,v in OTYPES.items()}
-    
+
+class ObjectStore:
+    "thin wrapper around a mapping str->bytes"
     _store: ty.Mapping
+    
         
-    def __init__(self, store=None):
+    def __init__(self, store=None, encoder=None):
         if store is None:
             store = self.init_storage(store)
         if not isinstance(store, ty.Mapping):
@@ -40,61 +39,79 @@ class BaseObjectStore(ABC):
             store = {}
         return store
     
-    def _hash_object(self, obj, otype):
-        data = self._serialize(obj)
-        key = self._hash(data)
+    def _hash_object(self, obj, otype, encoder):
+        enc = ENCODERS[encoder]
+        data = enc.serialize(obj)
+        size = len(data)
+        key = enc.hash(data)
         if key not in self._store:
-            self._store[key] = data
-        return ObjectRef(key=key, otype=otype, size=len(data))
+            self._store[key] = enc.compress(data)
+        return ObjectRef(key=key, otype=otype, size=size, encoder=encoder)
     
-    def hash_object(self, obj):
-        otype = self.OTYPE_NAMES.get(type(obj), "blob")
+    def hash_object(self, obj, encoder=None):
+        for otype, class_ in OTYPES.items():
+            if isinstance(obj, class_):
+                break
+        else:
+            otype = "blob"
         if otype == "tree":
-            ivs = set(Interval(iv.begin, iv.end, self.hash_object(iv.data)) for iv in obj)
-            obj = IntervalTree(ivs)
-        return self._hash_object(obj, otype)
+            enc = obj.encoder
+            obj = obj.to_dict()
+            obj = {k: self.hash_object(v, enc) for k,v in obj.items()}
+        if encoder is None:
+            encoder = DEFAULT_ENCODER
+        return self._hash_object(obj, otype, encoder)
 
-    def get(self, key):
-        if isinstance(key, ObjectRef):
-            key = key.key
-        return self._store[key]
-    
-    def get_object(self, key, resolve_refs=True):
-        obj = self._deserialize(self.get(key))
-        if resolve_refs and isinstance(obj, IntervalTree):
-            ivs = set()
-            for iv in obj:
-                if isinstance(iv.data, ObjectRef):
-                    ivs.add(Interval(iv.begin, iv.end, self.get_object(iv.data.key)))
+    def get(self, ref):
+        if isinstance(ref, ObjectRef):
+            key = ref.key
+        else:
+            key = ref
+        if key in self._store:
+            return self._store[key]
+        for k in self.keys():
+            if k.startswith(key):
+                return self._store[k]
+        raise KeyError(f"{key} not found.")
+            
+    def get_object(self, ref, otype='blob', encoder=None, resolve_refs=True):
+        if isinstance(ref, ObjectRef):
+            encoder = ENCODERS[ref.encoder]
+        elif encoder is None:
+            encoder = ENCODERS[DEFAULT_ENCODER]
+        else:
+            encoder = ENCODERS[encoder]
+        data = encoder.decompress(self.get(ref))
+        obj = encoder.deserialize(data)
+        if isinstance(ref, ObjectRef):
+            otype = ref.otype
+        if resolve_refs and otype=='tree':
+            d = {}
+            for k,v in obj.items():
+                if isinstance(v, ObjectRef):
+                    d[k] = self.get_object(v)
                 else:
-                    ivs.add(iv)
-            obj = IntervalTree(ivs)
+                    d[k] = v
+            obj = BaseTree.instance_from_dict(d)
         return obj
 
+    def get_ref(self, key, encoder=None):
+        obj = self.get_object(key, encoder=encoder, resolve_refs=True)
+        return self.hash_object(obj, encoder=encoder)
+    
+    def get_object_packet(self, ref, encoder=None):
+        if encoder is None:
+            encoder = DEFAULT_ENCODER
+        enc = ENCODERS[encoder]
+        obj = ObjectPacket(
+            otype=ref.otype,
+            content=enc.encode(self.get(ref)),
+            encoder=encoder,
+        )
+        return obj
 
-    def get_ref(self, key):
-        obj = self.get_object(key, resolve_refs=True)
-        return self.hash_object(obj)
-    
-    @abstractmethod
-    def _hash(self, data):
-        pass
-    
-    @abstractmethod
-    def _serialize(self, obj):
-        pass
-    
-    @abstractmethod    
-    def _deserialize(self, data):
-        pass
-    
-class PickleObjectStore(BaseObjectStore):
-    
-    def _hash(self, data):
-        return hashlib.sha1(data).hexdigest()
-    
-    def _serialize(self, obj):
-        return pickle.dumps(obj)
-        
-    def _deserialize(self, data):
-        return pickle.loads(data)
+    def object_from_packet(self, packet):
+        encoder = ENCODERS[packet.encoder]
+        data = encoder.decode(packet.content)
+        obj = encoder.deserialize(data)
+        return obj
