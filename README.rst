@@ -40,20 +40,28 @@ to be able to associate a unique piece of data with an interval of two integers 
 instead of a string of characters like a filename.
 
 
-* Free software: MIT
+* Free software: Apache-2.0
 * Documentation: https://igit.readthedocs.io.
 
 
 Features
 --------
 
-* TODO
+* IntervalGroup tree for intervaltree based "folders"
+* LabelGroup tree for dict-like "folders"
+
+Future Improvements
+-------------------
+* Option to add custom tree classes via plugins
+* Option to add custom encoding (hashing/serialization/compression) classes via plugins
+* Support for remotes
 
 Credits
 -------
-This package relies heavily on the intervaltree package for all interval tree manipulation
+This package relies on the intervaltree_ package for all interval tree manipulation
 
 This package was created with Cookiecutter_ and the `briggySmalls/cookiecutter-pypackage`_ project template.
 
+.. _intervaltree: https://github.com/chaimleib/intervaltree
 .. _Cookiecutter: https://github.com/audreyr/cookiecutter
 .. _`briggySmalls/cookiecutter-pypackage`: https://github.com/briggySmalls/cookiecutter-pypackage
