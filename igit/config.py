@@ -1,4 +1,6 @@
+from pydantic import BaseModel
 
+from .models import User
 
-class Config:
-    pass
+class Config(BaseModel):
+    user: User

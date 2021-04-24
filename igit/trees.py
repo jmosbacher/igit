@@ -4,8 +4,12 @@ from abc import ABC, abstractmethod, abstractclassmethod, abstractstaticmethod
 from collections.abc import Mapping, MutableMapping, Iterable
 from collections import UserDict
 from intervaltree import IntervalTree, Interval
+
+from .models import ObjectRef, BlobRef, TreeRef, Commit, Tag
 from .utils import dict_to_treelib
-from .encoders import DEFAULT_ENCODER
+from .serializers import SERIALIZERS, DEFAULT_SERIALIZER
+from .diffs import Change, Insertion, Deletion
+
 
 def camel_to_snake(name):
   name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
@@ -16,7 +20,7 @@ class KeyTypeError(TypeError):
 
 class BaseTree(MutableMapping):
     TREE_CLASSES = []
-    encoder: str = DEFAULT_ENCODER
+    serializer: str = DEFAULT_SERIALIZER
     
     @classmethod
     def register_tree_class(cls, class_):
@@ -56,6 +60,8 @@ class BaseTree(MutableMapping):
     def __repr__(self):
         return self.to_treelib().show(stdout=False)
 
+    __str__ = __repr__
+
     def nested_symmetric_difference(self, other):
         d = self.symmetric_difference(other)
         for k,v in self.items():
@@ -66,6 +72,73 @@ class BaseTree(MutableMapping):
             elif other[k] != v:
                 d[k] = v
         return d
+
+    def diff(self, other):
+        diffs = {}
+        for k,v in self.items():
+            if k in other:
+                if isinstance(v, BaseTree):
+                    d = v.diff(other[k])
+                    if d:
+                        diffs[k] = d
+                elif v != other[k]:
+                    diffs[k] = Change(old=v, new=other[k])
+            else:
+                diffs[k] = Deletion(old=v)
+
+        for k,v in other.items():
+            if k not in self:
+                diffs[k] = Insertion(new=v)
+        return diffs
+
+    def hash_object(self, store, obj):
+        for otype, class_ in OTYPES.items():
+            if isinstance(obj, class_):
+                break
+        else:
+            otype = "blob"
+        if otype == "tree":
+            obj = obj.hash_objects(store)
+        return self._hash_object(store, obj, otype)
+
+    def hash_objects(self, store):
+        d = {k: self.hash_object(store, v) for k,v in self.items()}
+        return self.__class__.from_dict(d)
+
+    def hash_tree(self, store):
+        return self.hash_object(store, self)
+
+    def deref(self, store):
+        d = {}
+        for k,v in self.items():
+            if hasattr(v, "deref"):
+                v = v.deref(store)
+            d[k] = v
+        return self.__class__.from_dict(d)
+
+    def _hash_object(self, store, obj, otype):
+        serializer = SERIALIZERS[self.serializer]
+        key, data = serializer.hash_object(obj)
+        size = len(data)
+        if key not in store:
+            store[key] = data
+        if isinstance(obj, BaseTree):
+            ref = TreeRef(key=key, tree_class=obj.__class__.__name__,
+                 size=size, serializer=self.serializer)
+        else:
+            ref = BlobRef(key=key, size=size, serializer=self.serializer)
+        return ref
+
+    def iter_subtrees(self):
+        for k,v in self.items():
+            if isinstance(v, BaseTree):
+                yield k,v
+            elif isinstance(v, ObjectRef) and v.otype=="tree":
+                yield k,v
+            
+    @property
+    def sub_trees(self):
+        return {k:v for k,v in self.iter_subtrees()}
 
     @abstractstaticmethod
     def compatible_keys(keys: Iterable)->bool:
@@ -82,7 +155,6 @@ class BaseTree(MutableMapping):
     @abstractmethod
     def symmetric_difference(self, other):
         pass
-    
     
 
 @BaseTree.register_tree_class
@@ -112,6 +184,12 @@ class LabelGroup(UserDict,BaseTree):
 
     def __repr__(self):
         return BaseTree.__repr__(self)
+
+    def __getstate__(self):
+        return self.__dict__
+
+    def __setstate__(self, d):
+        self.__dict__ = d
 
     def symmetric_difference(self, other):
         """
@@ -145,10 +223,18 @@ class IntervalGroup(BaseTree):
     def from_dict(cls, d):
         ivs = [Interval(*k, v) for k,v in d.items()]
         return cls(IntervalTree(ivs))
+
+    @classmethod
+    def from_label_dict(cls, d):
+        ivs = [Interval(*map(int, k.split("-")), v) for k,v in d.items()]
+        return cls(IntervalTree(ivs))
+
+    def to_label_dict(self):
+        return {f"{iv.begin}-{iv.end}": iv.data for iv in sorted(self._tree)}
         
     def to_dict(self):
-        return {(iv.begin, iv.end): iv.data for iv in sorted(self._tree)}
-
+        return {(iv.begin,iv.end): iv.data for iv in sorted(self._tree)}
+    
     def __init__(self, tree=None):
         if tree is None:
             tree = IntervalTree()
@@ -222,9 +308,6 @@ class IntervalGroup(BaseTree):
     def __bool__(self):
         return bool(len(self._tree))
 
-    # def __repr__(self):
-    #     return repr(self._tree)
-    
     def overlap(self, begin, end):
         hits = sorted(self._tree.overlap(begin, end))
         if len(hits)==1:
@@ -251,17 +334,21 @@ class IntervalGroup(BaseTree):
             raise TypeError(f"other must be of type IntervalGroup but is of type {type(other)}")
         tree = self._tree.symmetric_difference(other._tree)
         return IntervalGroup(tree)
+ 
 
-    
-def collect_intervals(tree, parent=(), merge_names=True):
+def collect_intervals(tree, parent=(), merge_names=True, join_char="_"):
     ivs = []
     if isinstance(tree, IntervalGroup):
-        
         for (begin,end), data in tree.items():
             if merge_names:
-                label = "_".join(parent)
+                label = join_char.join(parent)
             else:
                 label = parent
+            if isinstance(data, BaseTree):
+                name = parent+(str((begin, end)),)
+                ivs.extend(collect_intervals(data, parent=name, merge_names=merge_names, join_char=join_char))
+                data = float('nan')
+
             interval = {"label": label, "begin":begin,
                         "mid":(begin+end)/2 ,"end":end, "data": data}
             ivs.append(interval)
@@ -270,5 +357,12 @@ def collect_intervals(tree, parent=(), merge_names=True):
         for k,v in tree.items():
             name = parent+(k,)
             if isinstance(v, BaseTree):
-                ivs.extend(collect_intervals(v, parent=name))
+                ivs.extend(collect_intervals(v, parent=name, merge_names=merge_names, join_char=join_char))
     return ivs
+
+OTYPES = {
+    "tree": BaseTree,
+    "commit": Commit,
+    "tag": Tag,
+    }
+    
