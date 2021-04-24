@@ -31,6 +31,7 @@ zict = "^2.0.0"
 aiohttp = {version = "^3.7.4", extras = ["server"]}
 requests = {version = "^2.25.1", extras = ["server"]}
 Jinja2 = {version = "^2.11.3", extras = ["server"]}
+fastapi = {version = "^0.63.0", extras = ["server"]}
 
 [tool.poetry.dev-dependencies]
 bumpversion = "*"
