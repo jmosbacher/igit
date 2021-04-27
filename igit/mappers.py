@@ -91,10 +91,11 @@ class ObjectStoreMapper(SubfolderMapper):
         return key[:self.n]+key[self.n+1:]
 
     def __str__(self):
-        return "<ObjectStore: [:%s]%s[%s:]' ->%s>" % (
+        return "<ObjectStore: S[:%s]%sS[%s:] -> bytes>" % (
             str(self.n),
             self.sep,
-            str(self.d),
+            str(self.n),
+            
         )
 
     __repr__ = __str__

@@ -4,7 +4,10 @@ from collections.abc import Mapping
 from .models import ObjectRef, Commit
 from .refs import Refs
 from .trees import BaseTree, collect_intervals
-from .serializers import SERIALIZERS, DEFAULT_SERIALIZER
+from .serializers import SERIALIZERS
+from .diffs import Diff
+from .config import Config
+from .settings import DEFAULT_SERIALIZER
 
 
 class CommitError(RuntimeError):
@@ -17,8 +20,7 @@ def get_object_ref(key, otype, serializer, size=-1):
     raise KeyError(otype)
 
 class IGit:
-    _head: str
-#     config: dict
+    config: Config
 #     description: str
 #     hooks: dict
 #     info: str
@@ -28,13 +30,13 @@ class IGit:
     index: ObjectRef = None
     working_tree: BaseTree
 
-    def __init__(self, working_tree, head, index, objects, refs, serializer):
+    def __init__(self, working_tree, config, index, objects, refs, serializer):
         if isinstance(working_tree, Mapping):
             working_tree = BaseTree.instance_from_dict(working_tree)
         if not isinstance(working_tree, BaseTree):
             raise TypeError("Working tree must be an instance of BaseTree")
         self.working_tree = working_tree
-        self._head = head
+        self.config = config
         self.index = index
         self.objects = objects
         self.refs = refs
@@ -48,11 +50,11 @@ class IGit:
     def HEAD(self):
         if not len(self.refs.heads):
             return None
-        if self._head in self.refs.heads:
-            return self.refs.heads[self._head]
-        if self._head in self.refs.tags:
-            return self.refs.tags[self._head]
-        return self.cat_object(self._head, otype="commit")
+        if self.config.HEAD in self.refs.heads:
+            return self.refs.heads[self.config.HEAD]
+        if self.config.HEAD in self.refs.tags:
+            return self.refs.tags[self.config.HEAD]
+        return self.cat_object(self.config.HEAD, otype="commit")
 
     @property
     def HEAD_TREE(self):
@@ -74,7 +76,7 @@ class IGit:
 
     @property
     def detached(self):
-        return self._head not in self.refs.heads
+        return self.config.HEAD not in self.refs.heads
 
     def status(self):
         pass
@@ -108,45 +110,57 @@ class IGit:
             keys = self.working_tree.keys()
         for key in keys:
             index[key] = self.working_tree[key]
+        for key in index.keys():
+            if key not in self.working_tree:
+                del self.working_tree[key]
         self.index = index.hash_tree(self.objects)
         return self.index
 
-    def commit(self, message, author='', commiter='',):
+    def commit(self, message, author=None, commiter=None,):
         if self.has_unstaged_changes:
             raise CommitError("You have unstaged changes in your working tree.")
+        if author is None:
+            author = self.config.user.username
+        if commiter is None:
+            commiter = self.config.user.username
         commit = Commit(parent=self.HEAD, tree=self.index, message=message,
                         author=author, commiter=commiter)
         cref = self.hash_object(commit, otype="commit")
-        self.refs.heads[self._head] = cref
+        self.refs.heads[self.config.HEAD] = cref
         return cref
     
     @property
     def has_unstaged_changes(self):
         index = self.INDEX_TREE
-        return bool(index.nested_symmetric_difference(self.working_tree))
+        return bool(index.diff(self.working_tree))
 
     def checkout(self, key, branch=False):
         if branch:
             self.branch(key)
         if key in self.refs.heads:
             ref = self.refs.heads[key]
+        elif key in self.refs.tags:
+            ref = self.refs.tags[key]    
         else:
             ref = key
         commit = ref.deref(self.objects)
         tree = commit.tree.deref(self.objects)
         self.working_tree = tree
         self.index = commit.tree
-        self._head = key
+        self.config.HEAD = key
         return key
 
     def branch(self, name=None):
         if name is None:
-            return self._head
+            return self.config.HEAD
         if name in self.refs.heads:
             raise ValueError("a branch with this name already exists.")
         ref = self.HEAD
         self.refs.heads[name] = ref
         return ref
+
+    def tag(self, name, annotated=False):
+        pass
 
     def merge(self, onto):
         pass
@@ -165,3 +179,37 @@ class IGit:
 
     def rev_parse(self, key):
         pass
+
+    def cat_tree(self, ref, otype="blob", serializer=DEFAULT_SERIALIZER):
+        if isinstance(ref, str):
+            ref = self.get_ref(ref)    
+        obj = ref.deref(self.objects)
+        if isinstance(obj, Commit):
+            obj = obj.tree.deref(self.objects)
+        if not isinstance(obj, BaseTree):
+            raise ValueError(f"reference {ref} does not point to a tree or commit.")
+        return obj
+
+    def diff(self, ref1, ref2, otype="commit", serializer=DEFAULT_SERIALIZER):
+        tree1 = self.cat_tree(ref1, otype=otype, serializer=serializer)
+        tree2 = self.cat_tree(ref2, otype=otype, serializer=serializer)
+        diffs = tree1.diff(tree2)
+        return Diff(old=str(ref1), new=str(ref2), diffs=diffs)
+
+    def get_ref(self, key):
+        if key in self.objects:
+            data = self.objects[key]
+        else:
+            for k in self.objects.keys():
+                if k.startswith(key):
+                    key = k
+                    data = self.objects[k]
+                    break
+            else:
+                raise KeyError(key)
+        obj = SERIALIZERS[self.serializer].cat_object(data, verify=key)
+        for class_ in ObjectRef.__subclasses__():
+            if class_.otype == obj.otype:
+                return class_(key=key, serializer=self.serializer, size=-1)
+        else:
+            raise KeyError(key)

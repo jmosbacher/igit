@@ -24,7 +24,7 @@ Git-like version control of data that is organized using interval trees as well 
 Analogies to git:
 
 =========== =============
-git         igit
+**git**         **igit**
 ----------- -------------
 blob        blob
 filename    interval
@@ -34,9 +34,9 @@ tree/folder interval-tree
 in iGit the structure being versioned is a hiearchy of trees and blobs like git, only instead of just 
 supporting folder-like trees (string->value mapping) iGit supports interval trees as well.
 An interval tree maps intervals to data, data can contain a python object (analog of a file) or
-another tree (analog of a folder). This kind of structure is useful e.g. when tracking arrays of data or 
+another tree (analog of a folder). This kind of structure is useful e.g. when tracking chunks of large arrays of data or 
 configuration parameters that have defined intervals of validity attached to them. In these cases its useful
-to be able to associate a unique piece of data with an interval of two integers (e.g. an array index or timestamp)
+to be able to associate a unique piece of data with an interval between two integers (e.g. array indices or timestamps)
 instead of a string of characters like a filename.
 
 

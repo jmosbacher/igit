@@ -56,7 +56,7 @@ class BaseObjectSerializer(ABC):
         data = cls.serialize(obj)
         key = cls.hash(data)
         data = cls.compress(data)
-        return key,data
+        return key, data
 
     @classmethod
     def cat_object(cls, data, verify=None):
@@ -135,5 +135,4 @@ class PickleObjectSerializer(BaseObjectSerializer):
 
 
 SERIALIZERS["pickle"] = PickleObjectSerializer
-DEFAULT_SERIALIZER = "pickle"
 
