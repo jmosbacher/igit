@@ -103,6 +103,7 @@ class BaseTree(MutableMapping):
     __str__ = __repr__
 
     def diff(self, other):
+        #TODO: compare hashes via refs instead of using python eq. 
         diffs = {}
         for k,v in self.items():
             if k in other:

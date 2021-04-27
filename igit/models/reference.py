@@ -12,10 +12,16 @@ class SymbolicRef(BaseObject):
     pass
 
 class Reference(BaseObject):
-    pass
-
-class ObjectRef(Reference):
     key: str
+    
+    def __eq__(self, other):
+        if isinstance(other, Reference):
+            return self.key == other.key
+        if isinstance(other, str):
+            return self.key == other
+        return False
+        
+class ObjectRef(Reference):
     otype: ClassVar
     serializer: str
     size: int = -1
