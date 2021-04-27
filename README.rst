@@ -39,6 +39,22 @@ configuration parameters that have defined intervals of validity attached to the
 to be able to associate a unique piece of data with an interval between two integers (e.g. array indices or timestamps)
 instead of a string of characters like a filename.
 
+.. image:: docs/assets/images/tree_repr.png
+   :alt: Tree string repr
+
+.. image:: docs/assets/images/echarts_tree_view.png
+   :alt: Tree echarts
+
+.. image:: docs/assets/images/interval_chunking.png
+   :alt: Interval chunking
+
+.. image:: docs/assets/images/history_viewer.png
+   :alt: History (commit) viewer
+
+      
+
+   
+
 
 * Free software: Apache-2.0
 * Documentation: https://igit.readthedocs.io.
@@ -49,12 +65,15 @@ Features
 
 * IntervalGroup tree for intervaltree based "folders"
 * LabelGroup tree for dict-like "folders"
+* ConfigGroup for tracking interval of validity configuration objects
+* Visualization tools
+* Config "interval_chunking", splits your config into intervals of constant parameter values (for a subset of parameters or all)
 
 Future Improvements
 -------------------
 * Option to add custom tree classes via plugins
 * Option to add custom encoding (hashing/serialization/compression) classes via plugins
-* Support for remotes
+* Merge strategies
 
 Credits
 -------
