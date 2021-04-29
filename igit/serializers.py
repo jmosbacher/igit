@@ -1,5 +1,6 @@
 import base64
 import pickle
+import msgpack
 import hashlib
 from abc import ABC, abstractmethod, abstractstaticmethod
 from pydantic import BaseModel
@@ -111,17 +112,11 @@ class PickleObjectSerializer(BaseObjectSerializer):
     
     @staticmethod
     def serialize(obj):
-        try:
-            return msgpack.dumps(obj)
-        except:
-            return pickle.dumps(obj)
+        return pickle.dumps(obj)
     
     @staticmethod
     def deserialize(data):
-        try:
-            return msgpack.loads(data)
-        except:
-            return pickle.loads(data)
+        return pickle.loads(data)
 
     @staticmethod
     def bytes_to_string(data):
@@ -139,6 +134,28 @@ class PickleObjectSerializer(BaseObjectSerializer):
     def decompress(data):
         return data
 
+class MsgpackObjectSerializer(PickleObjectSerializer):
+    NAME = "msgpack"
+
+    @staticmethod
+    def hash(data):
+        return hashlib.sha1(data).hexdigest()
+    
+    @staticmethod
+    def serialize(obj):
+        try:
+            return msgpack.dumps(obj)
+        except:
+            return pickle.dumps(obj)
+    
+    @staticmethod
+    def deserialize(data):
+        try:
+            return msgpack.loads(data)
+        except:
+            return pickle.loads(data)
+
 
 SERIALIZERS["pickle"] = PickleObjectSerializer
+SERIALIZERS["msgpack"] = MsgpackObjectSerializer
 

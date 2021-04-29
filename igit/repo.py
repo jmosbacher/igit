@@ -31,12 +31,12 @@ class Repo:
             repo = m
         else:
             raise TypeError("repo must be a valid path or Mapping")
-        if IGIT_PATH in repo:
-            raise ValueError(f"igit repository already exists.")
+        if CONFIG_PATH in repo:
+            raise ValueError(f"igit repository already exists in path.")
         user = User.get_user(username=username, email=email)
         config = Config(HEAD=main_branch, user=user)
         repo[CONFIG_PATH] = config.json().encode()
-        return cls(repo, config=config)
+        return cls(repo)
 
     @classmethod
     def remote(cls, url, branch="master", **kwargs):
@@ -65,13 +65,11 @@ class Repo:
 
         if CONFIG_PATH not in repo:
             raise ValueError(f"{repo} is not a valid igit repository.")
-
+        config = Config.parse_raw(repo[CONFIG_PATH])
         serializer = kwargs.pop("serializer", DEFAULT_SERIALIZER)
-        config = kwargs.pop("config", None)
         index = kwargs.pop("index", None)
         working_tree = kwargs
 
-        # igit_mapper = SubfolderMapper(IGIT_PATH, repo)
         objects = ObjectStoreMapper(SubfolderMapper(DB_PATH, repo))
         refs = Refs(SubfolderMapper(REFS_PATH, repo), serializer=serializer)
         igit = IGit(working_tree=working_tree, config=config,
