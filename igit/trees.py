@@ -23,7 +23,7 @@ class KeyTypeError(TypeError):
 class BaseTree(MutableMapping):
     TREE_CLASSES = []
     serializer: str = DEFAULT_SERIALIZER
-
+    
     @classmethod
     def register_tree_class(cls, class_):
         cls.TREE_CLASSES.append(class_)
@@ -124,27 +124,28 @@ class BaseTree(MutableMapping):
                 diffs[k] = Insertion(key=k, new=v)
         return diffs
 
-    def hash_object(self, store, obj):
-        for otype, class_ in OTYPES.items():
-            if isinstance(obj, class_):
-                break
-        else:
-            otype = "blob"
-        if otype == "tree":
-            obj = obj.hash_objects(store)
+    def hash_object(self, store, obj, otype="blob"):
+        if isinstance(obj, BaseTree):
+            obj = obj.to_ref_tree(store)
+            otype = "tree"
         return self._hash_object(store, obj, otype)
 
-    def hash_objects(self, store):
-        d = {k: self.hash_object(store, v) for k,v in self.items()}
+    def to_ref_tree(self, store):
+        d = {}
+        for k,v in self.items():
+            if isinstance(v, ObjectRef):
+                d[k] = v
+            else:
+                d[k] = self.hash_object(store, v)
         return self.__class__.from_dict(d)
 
     def hash_tree(self, store):
         return self.hash_object(store, self)
 
-    def deref(self, store):
+    def deref(self, store, recursive=True):
         d = {}
         for k,v in self.items():
-            if hasattr(v, "deref"):
+            if recursive and hasattr(v, "deref"):
                 v = v.deref(store)
             d[k] = v
         return self.__class__.from_dict(d)
@@ -196,7 +197,7 @@ class BaseTree(MutableMapping):
     @abstractmethod
     def to_native(self):
         pass
-
+    
     # @abstractmethod
     # def symmetric_difference(self, other):
     #     pass

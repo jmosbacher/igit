@@ -12,19 +12,21 @@ class SymbolicRef(BaseObject):
     pass
 
 class Reference(BaseObject):
-    key: str
+    pass
     
+        
+class ObjectRef(Reference):
+    key: str
+    otype: ClassVar
+    serializer: str
+    size: int = -1
+
     def __eq__(self, other):
         if isinstance(other, Reference):
             return self.key == other.key
         if isinstance(other, str):
             return self.key == other
         return False
-        
-class ObjectRef(Reference):
-    otype: ClassVar
-    serializer: str
-    size: int = -1
     
     @staticmethod
     def _deref(key, store, serializer):
@@ -33,14 +35,17 @@ class ObjectRef(Reference):
         obj = serializer.cat_object(data, verify=key)
         return obj
 
-    def deref(self, store):
+    def deref(self, store, recursive=True):
         obj = self._deref(self.key, store, self.serializer)
-        if hasattr(obj, "deref"):
-            obj = obj.deref(store)
+        if recursive and hasattr(obj, "deref"):
+            obj = obj.deref(store, recursive)
         return obj
     
     def __str__(self):
         return self.key
+
+    def __hash__(self):
+        return hash(self.key)
 
 class BlobRef(ObjectRef):
     otype: ClassVar = "blob"
@@ -121,7 +126,8 @@ class Commit(Reference):
     message: str
 
     def __hash__(self):
-        return hash(self.json())
+        return hash((self.otype, self.tree.key, self.parent.key,
+                 self.author, self.commiter, self.message))
 
     @property
     def is_root(self):
@@ -137,3 +143,8 @@ class AnnotatedTag(Commit):
 class MergeCommit(Commit):
     otype: ClassVar = "merge"
     parents: List[CommitRef]
+
+    def __hash__(self):
+        return hash((self.otype, self.tree.key, tuple(p.key for p in self.parents),
+                 self.author, self.commiter, self.message))
+

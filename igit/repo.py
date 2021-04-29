@@ -181,29 +181,26 @@ class Repo:
     def new_group(self, kind):
         pass
 
-    def __iter__(self):
-        pass
+    # def __iter__(self):
+    #     pass
 
-    def __len__(self):
-        pass
+    # def __len__(self):
+        # pass
 
-    def compatible_keys(self, keys):
-        pass
+    # def compatible_keys(self, keys):
+    #     pass
     
-    def from_dict(self, d):
-        pass
+    # def from_dict(self, d):
+    #     pass
 
-    def from_label_dict(self, d):
-        pass
+    # def from_label_dict(self, d):
+    #     pass
 
-    def symmetric_difference(self, other):
-        pass
+    # def to_dict(self):
+    #     pass
 
-    def to_dict(self):
-        pass
-
-    def to_label_dict(self):
-        pass
+    # def to_label_dict(self):
+    #     pass
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         try:

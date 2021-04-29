@@ -111,11 +111,17 @@ class PickleObjectSerializer(BaseObjectSerializer):
     
     @staticmethod
     def serialize(obj):
-        return pickle.dumps(obj)
+        try:
+            return msgpack.dumps(obj)
+        except:
+            return pickle.dumps(obj)
     
     @staticmethod
     def deserialize(data):
-        return pickle.loads(data)
+        try:
+            return msgpack.loads(data)
+        except:
+            return pickle.loads(data)
 
     @staticmethod
     def bytes_to_string(data):

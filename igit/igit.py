@@ -71,7 +71,7 @@ class IGit:
         if self.index is None:
             index = self.working_tree.__class__()
         else:
-            index = self.index.deref(self.objects)
+            index = self.INDEX.deref(self.objects)
         return index
 
     @property
