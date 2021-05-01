@@ -6,4 +6,4 @@ __version__ = '0.1.0'
 
 from .repo import Repo
 from .utils import *
-from . import mappers, server, interval_utils
+from . import server, interval_utils, storage

@@ -9,8 +9,7 @@ from .refs import Refs
 from .trees import collect_intervals, BaseTree
 from .models import TreeRef, RepoIndex, User
 from .igit import IGit
-from .serializers import SERIALIZERS
-from .mappers import SubfolderMapper, ObjectStoreMapper
+from .storage import SubfolderMapper, IGitObjectStore, ObjectStorage, BinaryStorage
 from .utils import ls
 from .visualizations import echarts_graph, get_pipeline_dag
 from .config import Config
@@ -21,7 +20,7 @@ class Repo:
     igit: IGit
 
     @classmethod
-    def init(cls, repo, main_branch="master", username=None, email=None):
+    def init(cls, repo, db=None, main_branch="master", username=None, email=None):
         if isinstance(repo, (str, pathlib.Path)):
             repo = fsspec.get_mapper(repo)
         elif isinstance(repo, Mapping):
@@ -31,12 +30,14 @@ class Repo:
             repo = m
         else:
             raise TypeError("repo must be a valid path or Mapping")
+
+        repo = BinaryStorage(d=repo)
         if CONFIG_PATH in repo:
             raise ValueError(f"igit repository already exists in path.")
         user = User.get_user(username=username, email=email)
         config = Config(HEAD=main_branch, user=user)
         repo[CONFIG_PATH] = config.json().encode()
-        return cls(repo)
+        return cls(repo, db=db)
 
     @classmethod
     def remote(cls, url, branch="master", **kwargs):
@@ -55,46 +56,63 @@ class Repo:
         repo.igit.checkout(branch)
         return repo
 
-    def __init__(self, repo, **kwargs):
-        if isinstance(repo, (str, pathlib.Path)):
+    def __init__(self, repo, db=None, bare=False, **kwargs):
+        if isinstance(repo,  pathlib.Path):
+            repo = str(repo)
+        if isinstance(repo, str):
             repo = fsspec.get_mapper(repo)
         elif isinstance(repo, Mapping):
             pass
         else:
             raise TypeError("repo must be a valid path or Mapping")
-
+        
+        
+        if isinstance(db, pathlib.Path):
+            db = str(db)
+        if isinstance(db, str):
+            db = fsspec.get_mapper(db)
+        elif isinstance(db, Mapping):
+            pass
+        elif db is None:
+            db = SubfolderMapper(IGIT_PATH, repo)
+        else:
+            raise TypeError("db must be a valid path or Mapping")
         if CONFIG_PATH not in repo:
             raise ValueError(f"{repo} is not a valid igit repository.")
-        config = Config.parse_raw(repo[CONFIG_PATH])
-        serializer = kwargs.pop("serializer", DEFAULT_SERIALIZER)
-        index = kwargs.pop("index", None)
-        working_tree = kwargs
 
-        objects = ObjectStoreMapper(SubfolderMapper(DB_PATH, repo))
-        refs = Refs(SubfolderMapper(REFS_PATH, repo), serializer=serializer)
+        config = Config.parse_raw(repo[CONFIG_PATH])
+        index = kwargs.pop("index", None)
+        if bare:
+            working_tree = None
+        else:
+            working_tree = kwargs
+        objects = IGitObjectStore(d=db)
+        # ref_store = ObjectStorage(d=)
+        refs = Refs(SubfolderMapper(REFS_PATH, repo))
         igit = IGit(working_tree=working_tree, config=config,
-                    index=index, objects=objects, refs=refs, serializer=serializer)
+                    index=index, objects=objects, refs=refs)
         self.igit = igit
         self.fstore = repo
+        self.ostore = ObjectStorage(d=repo)
         self.load()
 
     def __getitem__(self, key):
-        return self.igit.working_tree[key]
+        return self.igit.WORKING_TREE[key]
         
     def __setitem__(self, key, value):
-        self.igit.working_tree[key] = value
+        self.igit.WORKING_TREE[key] = value
 
     def __getattr__(self, key):
-        return getattr(self.igit.working_tree, key)
+        return getattr(self.igit.WORKING_TREE, key)
 
     def __delitem__(self, key):
-        if key in self.igit.working_tree:
-            del self.igit.working_tree[key]
+        if key in self.igit.WORKING_TREE:
+            del self.igit.WORKING_TREE[key]
         raise KeyError(key)
 
     def __dir__(self):
-        create_methods = [k for k in dir(self.igit.working_tree) if k.startswith("new")]
-        tree_values =  list(self.igit.working_tree.keys())
+        create_methods = [k for k in dir(self.igit.WORKING_TREE) if k.startswith("new")]
+        tree_values =  list(self.igit.WORKING_TREE.keys())
         return create_methods + tree_values + super().__dir__()
 
     def __repr__(self):
@@ -102,13 +120,14 @@ class Repo:
 
     @property
     def path(self):
-        if isinstance(self.fstore, fsspec.FSMap):
+        if hasattr(self.fstore, "root"):
             return self.fstore.root
         return ""
 
     @property
     def uri(self):
-        if isinstance(self.fstore, fsspec.FSMap):
+        if hasattr(self.fstore, "fs"):
+
             uri = self.fstore.fs.protocol+"://"+self.path
         else:
             uri = self.path
@@ -122,14 +141,14 @@ class Repo:
         title = self.igit.branch()
         if self.dirty:
             title = "*"+title
-        return self.igit.working_tree.to_treelib(parent=title).show(**kwargs)
+        return self.igit.WORKING_TREE.to_treelib(parent=title).show(**kwargs)
 
     def show_intervals(self, join_char="; ", **opts):
         import panel as pn
         import holoviews as hv
         import pandas as pd
         pn.extension()
-        df = pd.DataFrame(collect_intervals(self.igit.working_tree, join_char=join_char))
+        df = pd.DataFrame(collect_intervals(self.igit.WORKING_TREE, join_char=join_char))
         plot = hv.Segments(df, kdims=["begin", "label",  "end", "label"], vdims="data", )
         title = self.igit.branch()
         if self.dirty:
@@ -154,27 +173,30 @@ class Repo:
         uvicorn.run(app, host="0.0.0.0", port=5000, log_level="info")
 
     def save(self):
-        keys = list(self.fstore.keys())
-        for k in keys:
-            if k.startswith(IGIT_PATH):
-                continue
-            del self.fstore[k]
-            
-        ref = self.igit.working_tree.hash_tree(self.fstore)
-        index = RepoIndex(working_tree=ref, last_save=int(time.time()))
-        self.fstore[CONFIG_PATH] = self.igit.config.json().encode()
-        self.fstore[INDEX_PATH] = index.json().encode()
-        return ref
+        self.ostore["working_tree"] = self.igit.WORKING_TREE
+        # keys = list(self.fstore.keys())
+        # for k in keys:
+        #     if k.startswith(IGIT_PATH):
+        #         continue
+        #     del self.fstore[k]
+        # ref = self.igit.working_tree.hash_tree(self.fstore)
+        # index = RepoIndex(working_tree=ref, last_save=int(time.time()))
+        # self.fstore[CONFIG_PATH] = self.igit.config.json().encode()
+        # self.fstore[INDEX_PATH] = index.json().encode()
+        # return ref
 
     def load(self):
-        try:
-            index = self.fstore[INDEX_PATH]
-            index = RepoIndex.parse_raw(index)
-            self.igit.working_tree = index.working_tree.deref(self.fstore)
-            self.igit.config = Config.parse_raw(self.fstore[CONFIG_PATH])
-        except:
-            pass
-        return self
+        tree = self.ostore.get("working_tree", None)
+        if tree is not None:
+            self.igit.working_tree = tree
+        # try:
+        #     index = self.fstore[INDEX_PATH]
+        #     index = RepoIndex.parse_raw(index)
+        #     self.igit.working_tree = index.working_tree.deref(self.fstore)
+        #     self.igit.config = Config.parse_raw(self.fstore[CONFIG_PATH])
+        # except:
+        #     pass
+        # return self
 
     def new_group(self, kind):
         pass

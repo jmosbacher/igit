@@ -1,22 +1,21 @@
 from collections.abc import Mapping
+import sys
 
 # from .object_store import ObjectStore
 from .models import ObjectRef, Commit
 from .refs import Refs
 from .trees import BaseTree, collect_intervals
-from .serializers import SERIALIZERS
 from .diffs import Diff
 from .config import Config
-from .settings import DEFAULT_SERIALIZER
 
 
 class CommitError(RuntimeError):
     pass
 
-def get_object_ref(key, otype, serializer, size=-1):
+def get_object_ref(key, otype, size=-1):
     for class_ in ObjectRef.__subclasses__():
         if class_.otype == otype:
-            return class_(key=key, serializer=serializer, size=size)
+            return class_(key=key, size=size)
     raise KeyError(otype)
 
 class IGit:
@@ -24,28 +23,36 @@ class IGit:
 #     description: str
 #     hooks: dict
 #     info: str
-    serializer: str = DEFAULT_SERIALIZER
     objects: Mapping
     refs: Refs
     index: ObjectRef = None
     working_tree: BaseTree
 
-    def __init__(self, working_tree, config, index, objects, refs, serializer):
+    def __init__(self, working_tree, config, index, objects, refs):
         if isinstance(working_tree, Mapping):
             working_tree = BaseTree.instance_from_dict(working_tree)
-        if not isinstance(working_tree, BaseTree):
+        if working_tree is not None and not isinstance(working_tree, BaseTree):
             raise TypeError("Working tree must be an instance of BaseTree")
         self.working_tree = working_tree
         self.config = config
         self.index = index
         self.objects = objects
         self.refs = refs
-        self.serializer = serializer
         
     @classmethod
     def clone(cls, url):
         pass
     
+    @property
+    def bare(self):
+        return self.working_tree is None
+
+    @property
+    def WORKING_TREE(self):
+        if self.working_tree is None:
+            self.working_tree = BaseTree.instance_from_dict({})
+        return self.working_tree
+
     @property
     def HEAD(self):
         if not len(self.refs.heads):
@@ -69,7 +76,7 @@ class IGit:
     @property
     def INDEX_TREE(self):
         if self.index is None:
-            index = self.working_tree.__class__()
+            index = self.WORKING_TREE.__class__()
         else:
             index = self.INDEX.deref(self.objects)
         return index
@@ -85,17 +92,14 @@ class IGit:
         if isinstance(ref, ObjectRef):
             return ref.deref(self.objects)
         if isinstance(ref, str):
-            return get_object_ref(ref, otype=otype, serializer=self.serializer).deref(self.objects)
+            return get_object_ref(ref, otype=otype).deref(self.objects)
         else:
             raise KeyError(ref)
 
     def hash_object(self, obj, otype="blob"):
-        serializer = SERIALIZERS[self.serializer]
-        key, data = serializer.hash_object(obj)
-        size = len(data)
-        if key not in self.objects:
-            self.objects[key] = data
-        ref = get_object_ref(key, otype=otype, serializer=self.serializer, size=size)
+        key = self.objects.hash_object(obj)
+        size = sys.getsizeof(obj)
+        ref = get_object_ref(key, otype=otype, size=size)
         return ref
 
     def update_index(self, *keys):
@@ -107,12 +111,12 @@ class IGit:
     def add(self, *keys):
         index = self.INDEX_TREE
         if not keys:
-            keys = self.working_tree.keys()
+            keys = self.WORKING_TREE.keys()
         for key in keys:
-            index[key] = self.working_tree[key]
+            index[key] = self.WORKING_TREE[key]
         for key in index.keys():
-            if key not in self.working_tree:
-                del self.working_tree[key]
+            if key not in self.WORKING_TREE:
+                del self.WORKING_TREE[key]
         self.index = index.hash_tree(self.objects)
         return self.index
 
@@ -132,7 +136,7 @@ class IGit:
     @property
     def has_unstaged_changes(self):
         index = self.INDEX_TREE
-        return bool(index.diff(self.working_tree))
+        return bool(index.diff(self.WORKING_TREE))
 
     def checkout(self, key, branch=False):
         if branch:
@@ -180,9 +184,9 @@ class IGit:
     def rev_parse(self, key):
         pass
 
-    def cat_tree(self, ref, otype="blob", serializer=DEFAULT_SERIALIZER):
+    def cat_tree(self, ref, otype="blob"):
         if isinstance(ref, str):
-            ref = self.get_ref(ref)    
+            ref = self.get_ref(ref)
         obj = ref.deref(self.objects)
         if isinstance(obj, Commit):
             obj = obj.tree.deref(self.objects)
@@ -190,9 +194,9 @@ class IGit:
             raise ValueError(f"reference {ref} does not point to a tree or commit.")
         return obj
 
-    def diff(self, ref1, ref2, otype="commit", serializer=DEFAULT_SERIALIZER):
-        tree1 = self.cat_tree(ref1, otype=otype, serializer=serializer)
-        tree2 = self.cat_tree(ref2, otype=otype, serializer=serializer)
+    def diff(self, ref1, ref2, otype="commit"):
+        tree1 = self.cat_tree(ref1, otype=otype)
+        tree2 = self.cat_tree(ref2, otype=otype)
         diffs = tree1.diff(tree2)
         return Diff(old=str(ref1), new=str(ref2), diffs=diffs)
 
@@ -207,9 +211,9 @@ class IGit:
                     break
             else:
                 raise KeyError(key)
-        obj = SERIALIZERS[self.serializer].cat_object(data, verify=key)
+        obj = self.objects.cat_object(data)
         for class_ in ObjectRef.__subclasses__():
             if class_.otype == obj.otype:
-                return class_(key=key, serializer=self.serializer, size=-1)
+                return class_(key=key, size=-1)
         else:
             raise KeyError(key)

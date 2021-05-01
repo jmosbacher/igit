@@ -23,6 +23,7 @@ class ObjectPacket(BaseModel):
         
 class BaseObjectSerializer(ABC):
     NAME: str
+    key: bytes
 
     @abstractstaticmethod
     def hash(data):
@@ -51,17 +52,29 @@ class BaseObjectSerializer(ABC):
     @abstractstaticmethod
     def decompress(data):
         pass
+    
+    @abstractstaticmethod
+    def encrypt(data, key):
+        pass
+    
+    @abstractstaticmethod
+    def decrypt(data, key):
+        pass
 
     @classmethod
-    def hash_object(cls, obj):
+    def hash_object(cls, obj, key=None):
         data = cls.serialize(obj)
         key = cls.hash(data)
+        if key is not None:
+            data = cls.encrypt(data)
         data = cls.compress(data)
         return key, data
 
     @classmethod
-    def cat_object(cls, data, verify=None):
+    def cat_object(cls, data, verify=None, key=None):
         data = cls.decompress(data)
+        if key is not None:
+            data = cls.decrypt(data)
         if verify:
             ha = cls.hash(data)
             if ha != verify:
@@ -71,8 +84,8 @@ class BaseObjectSerializer(ABC):
         return obj
 
     @classmethod
-    def pack_object(cls, obj):
-        key,data = cls.hash_object(obj)
+    def pack_object(cls, obj, key=None):
+        key,data = cls.hash_object(obj, key=key)
         pack = ObjectPacket(
             otype=obj.otype,
             key=key,
@@ -82,26 +95,21 @@ class BaseObjectSerializer(ABC):
         return pack
 
     @classmethod
-    def unpack_object(cls, packet):
+    def unpack_object(cls, packet, verify=None, key=None):
         if packet.serializer != cls.NAME:
             raise EncoderMismatchError(f"You are trying to use serializer\
                  {cls.NAME} to unpack a package packed with serializer {packet.serializer}.")
         data = cls.string_to_bytes(packet.content)
-        data = cls.decompress(data)
-        ha = cls.hash(data)
-        if ha != packet.key:
-            raise DataCorruptionError("Looks like data has been\
-             corrupted or a different serializer was used.")
-        obj = cls.deserialize(data)
+        obj = cls.cat_object(data, verify=verify, key=key)
         return obj
 
     @classmethod
-    def get_mapper(cls, fs_mapper):
+    def get_mapper(cls, fs_mapper, verify=None, key=None):
         if isinstance(fs_mapper, (str, pathlib.Path)):
             fs_mapper = File(fs_mapper, mode='a')
-        compress = Func(cls.compress, cls.decompress, fs_mapper)
-        serialize = Func(cls.serialize, cls.deserialize, compress)
-        return serialize
+        mapper = Func(cls.compress, cls.decompress, fs_mapper)
+        mapper = Func(cls.serialize, cls.deserialize, mapper)
+        return mapper
 
 class PickleObjectSerializer(BaseObjectSerializer):
     NAME = "pickle"
@@ -132,6 +140,18 @@ class PickleObjectSerializer(BaseObjectSerializer):
     
     @staticmethod
     def decompress(data):
+        return data
+
+    @staticmethod
+    def encrypt(data, key):
+        return data
+    
+    @staticmethod
+    def decrypt(data, key):
+        return data
+
+    @staticmethod
+    def verify(data, key):
         return data
 
 class MsgpackObjectSerializer(PickleObjectSerializer):

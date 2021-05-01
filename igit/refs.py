@@ -1,8 +1,7 @@
 from typing import Mapping
 
 from .models import CommitRef, Tag
-from .mappers import SubfolderMapper
-from .serializers import SERIALIZERS
+from .storage import SubfolderMapper, IGitModelStorage
 from .remotes import Remote
 from .settings import DEFAULT_SERIALIZER
 
@@ -12,11 +11,10 @@ class Refs:
     tags: Mapping[str,Tag]
     remotes: Mapping[str,Remote]
 
-    def __init__(self, root_mapper, serializer):
-        serializer = SERIALIZERS[serializer]
-        self.heads = serializer.get_mapper(SubfolderMapper("heads", root_mapper))
-        self.tags = serializer.get_mapper(SubfolderMapper("tags", root_mapper))
-        self.remotes = serializer.get_mapper(SubfolderMapper("remotes", root_mapper))
+    def __init__(self, root_mapper):
+        self.heads = SubfolderMapper("heads", IGitModelStorage(CommitRef, root_mapper))
+        self.tags = SubfolderMapper("tags", IGitModelStorage(Tag, root_mapper))
+        self.remotes = SubfolderMapper("remotes", IGitModelStorage(Remote, root_mapper))
 
     def update(self, other):
         self.heads.update(other.heads)

@@ -1,6 +1,7 @@
 import treelib
 from intervaltree import Interval
 import networkx as nx
+from cryptography.fernet import Fernet
 
 def dict_to_treelib(d, parent="", tree=None, show_value=True, max_tag_len=50, include_trees=False):
     if tree is None:
@@ -153,3 +154,7 @@ def hierarchy_pos(G, root=None, width=1., vert_gap = 0.2, vert_loc = 0, xcenter 
 
             
     return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
+
+
+def generate_key():
+    return Fernet.generate_key()

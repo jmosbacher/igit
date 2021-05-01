@@ -4,8 +4,6 @@ from pydantic import BaseModel, Field
 from typing import Mapping, ClassVar
 
 from ..utils import hierarchy_pos, min_ch
-from ..serializers import SERIALIZERS
-from ..settings import DEFAULT_SERIALIZER
 
 
 class SymbolicRef(BaseObject):
@@ -13,12 +11,10 @@ class SymbolicRef(BaseObject):
 
 class Reference(BaseObject):
     pass
-    
         
 class ObjectRef(Reference):
     key: str
     otype: ClassVar
-    serializer: str
     size: int = -1
 
     def __eq__(self, other):
@@ -29,14 +25,12 @@ class ObjectRef(Reference):
         return False
     
     @staticmethod
-    def _deref(key, store, serializer):
-        serializer = SERIALIZERS[serializer]
-        data = store.get(key)
-        obj = serializer.cat_object(data, verify=key)
+    def _deref(key, store):
+        obj = store.get(key)
         return obj
 
     def deref(self, store, recursive=True):
-        obj = self._deref(self.key, store, self.serializer)
+        obj = self._deref(self.key, store)
         if recursive and hasattr(obj, "deref"):
             obj = obj.deref(store, recursive)
         return obj

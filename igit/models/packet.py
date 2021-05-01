@@ -5,4 +5,3 @@ from typing import ClassVar
 class ObjectPacket(BaseModel):
     otype: str
     content: str
-    serializer: str
