@@ -7,3 +7,4 @@ __version__ = '0.1.0'
 from .repo import Repo
 from .utils import *
 from . import server, interval_utils, storage
+from .demo import demo_repo

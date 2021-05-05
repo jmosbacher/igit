@@ -19,7 +19,7 @@ class ConfigGroup(LabelGroup):
     def mergable(name,ivs,begin,end):
         return [Interval(max(iv.begin, begin), min(iv.end, end), (name, iv.data)) for iv in ivs]
     
-    def selection(self, begin, end, *keys):
+    def boundaries(self, begin, end, *keys):
         if not keys:
             keys = self._mapping.keys()
         merged = []
@@ -38,24 +38,24 @@ class ConfigGroup(LabelGroup):
         cfg = {k: sorted(v) for k,v in cfg.items()}
         return cfg
 
-    def selection_df(self, begin, end, *keys):
-        return interval_dict_to_df(self.selection(begin, end, *keys))
+    def boundaries_df(self, begin, end, *keys):
+        return interval_dict_to_df(self.boundaries(begin, end, *keys))
 
-    def chunk_interval(self, begin, end, *keys):
+    def split_on_boundaries(self, begin, end, *keys):
         config = defaultdict(dict)
-        cfg = self.selection(begin, end, *keys)
+        cfg = self.boundaries(begin, end, *keys)
         for k, ivs in cfg.items():
             for iv in ivs:
                 config[(iv.begin, iv.end,)][k] = iv.data
         return dict(config)
 
-    def show_interval(self, begin, end, *keys,  **kwargs):
+    def show_boundaries(self, begin, end, *keys,  **kwargs):
         import holoviews as hv
         import panel as pn
         pn.extension()
-        df = self.selection_df(begin, end, *keys)
+        df = self.boundaries_df(begin, end, *keys)
         df["label"] = df.value.apply(lambda x: str(x)[:12])
-        opts = dict(color="label", responsive=True, cmap="Category10", title="Chunk intervals",
+        opts = dict(color="label", responsive=True, cmap="Category10", title="Interval boundaries",
          height=len(df["parameter"].unique())*30+80, line_width=30, alpha=0.5)
         opts.update(**kwargs)
         segments = hv.Segments(df, ["begin","parameter","end", "parameter"], "label").opts(**opts)

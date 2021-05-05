@@ -3,6 +3,7 @@ import fsspec
 from collections.abc import Mapping
 import pathlib
 import time
+import os
 
 # from .object_store import ObjectStore
 from .refs import Refs
@@ -13,88 +14,91 @@ from .storage import SubfolderMapper, IGitObjectStore, ObjectStorage, BinaryStor
 from .utils import ls
 from .visualizations import echarts_graph, get_pipeline_dag
 from .config import Config
-from .settings import *
+from .encryption import ENCRYPTORS
+from .constants import CONFIG_NAME
 
 class Repo:
     fstore: Mapping 
     igit: IGit
 
-    @classmethod
-    def init(cls, repo, db=None, main_branch="master", username=None, email=None):
-        if isinstance(repo, (str, pathlib.Path)):
-            repo = fsspec.get_mapper(repo)
-        elif isinstance(repo, Mapping):
-            m = fsspec.get_mapper(f"memory://igit")
-            for k,v in repo.items():
-                m[k] = v
-            repo = m
-        else:
-            raise TypeError("repo must be a valid path or Mapping")
+    def __init__(self, config, key=None):
+        if isinstance(config,  pathlib.Path):
+            config = str(config)
+        if isinstance(config, str):
+            config = os.path.join(config, CONFIG_NAME)
+            with fsspec.open(config, "rb") as f:
+                config = Config.parse_raw(f.read())
+        if not isinstance(config, Config):
+            raise TypeError("config must be a valid path or Config object")
 
-        repo = BinaryStorage(d=repo)
-        if CONFIG_PATH in repo:
-            raise ValueError(f"igit repository already exists in path.")
-        user = User.get_user(username=username, email=email)
-        config = Config(HEAD=main_branch, user=user)
-        repo[CONFIG_PATH] = config.json().encode()
-        return cls(repo, db=db)
-
-    @classmethod
-    def remote(cls, url, branch="master", **kwargs):
-        repo = cls.init(repo=url, **kwargs)
-        repo.igit.checkout(branch)
-        return repo
-
-    @classmethod
-    def clone(cls, other, repo, branch="master", **kwargs):
-        repo = cls.init(repo, **kwargs)
-        kwargs = dict(**kwargs)
-        other = cls(repo=other, **kwargs)
-        repo.igit.objects.update(other.igit.objects)
-        repo.igit.refs.update(other.igit.refs)
-        repo.igit.config = other.igit.config
-        repo.igit.checkout(branch)
-        return repo
-
-    def __init__(self, repo, db=None, bare=False, **kwargs):
-        if isinstance(repo,  pathlib.Path):
-            repo = str(repo)
-        if isinstance(repo, str):
-            repo = fsspec.get_mapper(repo)
-        elif isinstance(repo, Mapping):
-            pass
-        else:
-            raise TypeError("repo must be a valid path or Mapping")
+        repo = fsspec.get_mapper(config.root_path)
         
-        
-        if isinstance(db, pathlib.Path):
-            db = str(db)
-        if isinstance(db, str):
-            db = fsspec.get_mapper(db)
-        elif isinstance(db, Mapping):
-            pass
-        elif db is None:
-            db = SubfolderMapper(IGIT_PATH, repo)
+        encryptor_class = ENCRYPTORS.get(config.encryption, None)
+        if encryptor_class is not None and key is not None:
+            encryptor = encryptor_class(key)
         else:
-            raise TypeError("db must be a valid path or Mapping")
-        if CONFIG_PATH not in repo:
-            raise ValueError(f"{repo} is not a valid igit repository.")
+            encryptor = None
 
-        config = Config.parse_raw(repo[CONFIG_PATH])
-        index = kwargs.pop("index", None)
-        if bare:
-            working_tree = None
-        else:
-            working_tree = kwargs
-        objects = IGitObjectStore(d=db)
-        # ref_store = ObjectStorage(d=)
-        refs = Refs(SubfolderMapper(REFS_PATH, repo))
+        igit_folder = SubfolderMapper(config.igit_path, repo)
+
+        working_tree = None
+
+        objects_store = BinaryStorage(igit_folder, 
+                     compressor=config.compression,
+                     encryptor=encryptor)
+        objects = IGitObjectStore(d=objects_store,
+                                 serializer=config.serializer,
+                                 hash_func=config.hash_func)
+        refs = Refs(SubfolderMapper(config.refs_path, repo))
         igit = IGit(working_tree=working_tree, config=config,
-                    index=index, objects=objects, refs=refs)
+                    index=None, objects=objects, refs=refs)
         self.igit = igit
         self.fstore = repo
-        self.ostore = ObjectStorage(d=repo)
+        self.ostore = ObjectStorage(d=repo,
+                        serializer=config.serializer,)
         self.load()
+
+    @classmethod
+    def init(cls, path, bare=False, main_branch="master",
+             username=None, email=None, **kwargs):
+        if isinstance(path,  pathlib.Path):
+            path = "file://" + str(path)
+        if isinstance(path, str):
+            repo = fsspec.get_mapper(path)
+        else:
+            repo = path
+        if not isinstance(repo, fsspec.mapping.FSMap):
+            raise TypeError("repo must be a valid fsspec path or FSMap")
+        
+        path = repo.fs.protocol + "://" + repo.root
+        if CONFIG_NAME in repo:
+            raise ValueError(f"igit repository already exists in path.")
+
+        kwargs = dict(kwargs)
+        key = kwargs.pop("key", None)
+
+        user = User.get_user(username=username, email=email)
+        config = Config(HEAD=main_branch, main_branch=main_branch,
+                         user=user, root_path=path, **kwargs)
+        repo[CONFIG_NAME] = config.json(indent=3).encode()
+        
+        return cls(config, key=key)
+
+    @classmethod
+    def clone(cls, source, target=None, branch="master", **kwargs):
+        if target is None:
+            target = "file://" + source.rpartition("/")[-1]
+        repo = cls.init(target, **kwargs)
+        source = cls(source)
+        head = source.igit.refs.heads[branch]
+        for k,v in source.igit.objects.items():
+            repo.igit.objects[k] = v
+        repo.igit.refs.heads[branch] = head
+        repo.igit.config = source.igit.config
+        repo.igit.config.root_path = target
+        repo.igit.config.HEAD = branch
+        repo.igit.checkout(branch)
+        return repo
 
     def __getitem__(self, key):
         return self.igit.WORKING_TREE[key]
@@ -174,75 +178,35 @@ class Repo:
 
     def save(self):
         self.ostore["working_tree"] = self.igit.WORKING_TREE
-        # keys = list(self.fstore.keys())
-        # for k in keys:
-        #     if k.startswith(IGIT_PATH):
-        #         continue
-        #     del self.fstore[k]
-        # ref = self.igit.working_tree.hash_tree(self.fstore)
-        # index = RepoIndex(working_tree=ref, last_save=int(time.time()))
-        # self.fstore[CONFIG_PATH] = self.igit.config.json().encode()
-        # self.fstore[INDEX_PATH] = index.json().encode()
-        # return ref
-
+        self.fstore[CONFIG_NAME] = self.igit.config.json(indent=3).encode()
+      
     def load(self):
         tree = self.ostore.get("working_tree", None)
         if tree is not None:
             self.igit.working_tree = tree
-        # try:
-        #     index = self.fstore[INDEX_PATH]
-        #     index = RepoIndex.parse_raw(index)
-        #     self.igit.working_tree = index.working_tree.deref(self.fstore)
-        #     self.igit.config = Config.parse_raw(self.fstore[CONFIG_PATH])
-        # except:
-        #     pass
-        # return self
+        self.igit.config = Config.parse_raw(self.fstore[CONFIG_NAME])
 
     def new_group(self, kind):
         pass
 
-    # def __iter__(self):
-    #     pass
-
-    # def __len__(self):
-        # pass
-
-    # def compatible_keys(self, keys):
-    #     pass
-    
-    # def from_dict(self, d):
-    #     pass
-
-    # def from_label_dict(self, d):
-    #     pass
-
-    # def to_dict(self):
-    #     pass
-
-    # def to_label_dict(self):
-    #     pass
-
     def _repr_mimebundle_(self, include=None, exclude=None):
         try:
             import panel as pn
+            from .hashing import NumpyJSONEncoder
+            import json
+            d = self.to_nested_label_dict()
+            data = json.dumps(d, cls=NumpyJSONEncoder)
+            p = pn.pane.JSON(data,depth=3, theme="light", sizing_mode="stretch_both")
+            return p._repr_mimebundle_(include=include, exclude=exclude)
         except:
             return repr(self)
-        d = self.to_nested_label_dict()
-        p = pn.pane.JSON(d,depth=3, theme="light", sizing_mode="stretch_both")
-        return p._repr_mimebundle_(include=include, exclude=exclude)
 
     def echarts_tree(self):
         branch = self.igit.branch()
         if self.dirty:
             branch = "*"+branch
         return self.igit.working_tree.echarts_tree(f"Working tree: {branch}")
-        # import panel as pn
-        # pn.extension('echarts')
-        # 
-        # echart = echarts_graph(self.igit.working_tree.to_echarts_series("root"), f"Working tree: {branch}")
-        # echart_pane = pn.pane.ECharts(echart, width=700, height=400, sizing_mode="stretch_both")
-        # return echart_pane
-
+ 
     def explore(self):
         from .visualizations import TreeExplorer
         label = self.igit.branch() or "root"

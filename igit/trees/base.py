@@ -7,9 +7,8 @@ from collections.abc import Mapping, MutableMapping, Iterable
 from collections import UserDict, defaultdict
 
 from ..models import ObjectRef, BlobRef, TreeRef, Commit, Tag
-from ..utils import dict_to_treelib
-from ..diffs import Change, Insertion, Deletion, Diff
-from ..settings import DEFAULT_SERIALIZER
+from ..utils import dict_to_treelib, equal
+# from ..diffs import Change, Insertion, Deletion, Diff
 
 
 def camel_to_snake(name):
@@ -54,11 +53,17 @@ class BaseTree(MutableMapping):
             raise KeyError(f"A value with the key {name} alread exists.")
         self[name] = group
 
-    def to_nested_dict(self):
-        d = self.to_dict()
-        for k,v in self.items():
+    def to_nested_dict(self, sort=False):
+        
+        items = self.to_dict().items()
+        if sort:
+            items = sorted(items)
+        d = {}
+        for k,v in items:
             if isinstance(v, BaseTree):
-                d[k] = v.to_nested_dict()
+                d[k] = v.to_nested_dict(sort=sort)
+            else:
+                d[k] = v
         return d
 
     def to_nested_label_dict(self)->dict:
@@ -145,7 +150,7 @@ class BaseTree(MutableMapping):
         d = {}
         for k,v in self.items():
             if recursive and hasattr(v, "deref"):
-                v = v.deref(store)
+                v = v.deref(store, recursive=recursive)
             d[k] = v
         return self.__class__.from_dict(d)
 
@@ -159,17 +164,30 @@ class BaseTree(MutableMapping):
             ref = BlobRef(key=key, size=size)
         return ref
 
+
     def iter_subtrees(self):
         for k,v in self.items():
             if isinstance(v, BaseTree):
                 yield k,v
             elif isinstance(v, ObjectRef) and v.otype=="tree":
                 yield k,v
-            
+    
     @property
     def sub_trees(self):
-        return {k:v for k,v in self.iter_subtrees()}        
+        return {k:v for k,v in self.iter_subtrees()}
 
+    def __containes__(self, key):
+        return key in list(self.keys())
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return False
+        if not sorted(self.keys()) == sorted(other.keys()):
+            return False
+        for k,v in self.items():
+            if not equal(v, other[k]):
+                return False
+        return True
 
     @abstractstaticmethod
     def compatible_keys(keys: Iterable)->bool:
@@ -195,7 +213,5 @@ class BaseTree(MutableMapping):
     def to_native(self):
         pass
     
-    # @abstractmethod
-    # def symmetric_difference(self, other):
-    #     pass
-    
+
+

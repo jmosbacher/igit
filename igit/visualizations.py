@@ -202,13 +202,9 @@ def get_pipeline_dag(cref, db, pipeline=None, dag={}, n=6):
     c = cref.deref(db)
     cid = cref.key[:n]
     pipeline.add_stage(cid, CommitViewer(commit=cref, db=db,))
-    if c.parent:
-        dag[cid] = c.parent.key[:n]
-        get_pipeline_dag(c.parent, db, pipeline=pipeline, dag=dag, n=n)
-    elif hasattr(c, "parents"):
-        dag[cid] = tuple(p.key[:n] for p in c.parents)
-        [get_pipeline_dag(p, db, pipeline, dag=dag, n=n) for p in c.parents]
-    return pipeline, dag    
+    dag[cid] = tuple(p.key[:n] for p in c.parents)
+    [get_pipeline_dag(p, db, pipeline, dag=dag, n=n) for p in c.parents]
+    return pipeline, dag
 
 def echarts_graph(data, title="Tree graph"):
     

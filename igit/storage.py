@@ -1,14 +1,18 @@
-import typing as ty
+import gridfs
 import fsspec
+import typing as ty
+
 from zict import File, Func
 from zict.common import ZictBase, close
 from pydantic import BaseModel
+from pymongo import MongoClient
+from collections.abc import MutableMapping
 
 from .serializers import SERIALIZERS
 from .hashing import HASH_FUNCTIONS
 from .compression import COMPRESSORS
 from .encryption import ENCRYPTORS
-from .settings import DEFAULT_SERIALIZER, DEFAULT_ENCRYPTION, DEFAULT_COMPRESSION, DEFAULT_HASH
+from .constants import HASH_HOOK_NAME
 
 
 class DataCorruptionError(KeyError):
@@ -130,16 +134,10 @@ class BinaryStorage(ZictBase):
     compressor: ty.Any
 
     def __init__(self, d, fs_options={}, encryptor=None,
-                 compressor=DEFAULT_COMPRESSION):
+                 compressor=None):
         if isinstance(d, str):
             d = fsspec.get_mapper(d, **fs_options)
 
-        if isinstance(encryptor, bytes):
-            encryptor_key = encryptor
-            encryptor = ENCRYPTORS.get(DEFAULT_ENCRYPTION, None)
-            if encryptor is not None:
-                encryptor = encryptor(encryptor_key)
-            
         self.encryptor = encryptor
 
         if isinstance(compressor, str):
@@ -226,7 +224,7 @@ class ObjectStorage(ZictBase):
     d: ty.Mapping
     serializer: ty.Any
 
-    def __init__(self,  d: BinaryStorage, serializer=DEFAULT_SERIALIZER):
+    def __init__(self,  d: BinaryStorage, serializer=None):
         self.d = d
         if isinstance(serializer, str):
             serializer = SERIALIZERS.get(serializer, None)
@@ -283,13 +281,13 @@ class ObjectStorage(ZictBase):
     def get(self, key, default=None):
         if key not in self.d:
             return default
-        return self.deserialize(self.d[key])
+        return self[key]
 
     def keys(self):
         return list(self.d.keys())
 
     def __getitem__(self, key):
-        return self.get(key)
+        return self.deserialize(self.d[key])
 
     def __setitem__(self, key, value):
         self.d[key] = self.serialize(value)
@@ -340,8 +338,8 @@ class IGitObjectStore(ObjectStorage):
     verify: bool
     hash_func: ty.Callable
 
-    def __init__(self, d: BinaryStorage, serializer=DEFAULT_SERIALIZER, 
-                 hash_func=DEFAULT_HASH, verify=True):
+    def __init__(self, d: BinaryStorage, serializer=None, 
+                 hash_func="sha1", verify=True):
         d = IGitObjectStoreMapper(d)
         super().__init__(d, serializer=serializer)
         self.verify = verify
@@ -351,23 +349,25 @@ class IGitObjectStore(ObjectStorage):
             hash_func = lambda data: str(hash(data))
         self.hash_func = hash_func
 
-    def hash(self, data):
-        return self.hash_func(data)
+    def hash(self, obj)->str:
+        hook = getattr(obj, HASH_HOOK_NAME, None)
+        if hook is not None:
+            obj = hook()
+        return self.hash_func(obj)
     
     def hash_object(self, obj, save=True):
-        data = self.serialize(obj)
-        key = self.hash(data)
-        if save and key not in self.d:
-            self.d[key] = data
+        key = self.hash(obj)
+        if save:
+            self.d[key] = self.serialize(obj)
         return key
 
     def cat_object(self, key):
         data = self.d[key]
+        obj = self.deserialize(data)
         if self.verify:
-            if self.hash(data) != key:
+            if self.hash(obj) != key:
                 raise DataCorruptionError("Looks like data has been corrupted or\
                      a different serializer was used.")
-        obj = self.deserialize(data)
         return obj
     
     def get(self, key, default=None):
@@ -377,3 +377,58 @@ class IGitObjectStore(ObjectStorage):
 
 def IGitModelStorage(model, d):
     return IGitFunc(lambda m: m.json().encode(), lambda data: model.parse_raw(data), d)
+
+
+class GFSMapping(MutableMapping):
+    _fs = None
+    def __init__(self, db: str, **kwargs):
+        self.db = db
+        self.connection_kwargs = kwargs
+
+    @property
+    def fs(self):
+        if self._fs is None:
+            client = MongoClient(**self.connection_kwargs)
+            db = client[self.db]
+            self._fs = gridfs.GridFS(db)
+        return self._fs
+
+    def __getitem__(self, key):
+        if self.fs.exists({"filename": key}):
+            return self.fs.find_one({"filename": key}).read()
+        else:
+            raise KeyError(key)
+            
+    def __setitem__(self, key, value):
+        if self.fs.exists({"filename": key}):
+            del self[key]
+        self.fs.put(value, filename=key)
+
+    def __getattr__(self, key):
+        return self[key]
+
+    def __delitem__(self, key):
+        if self.fs.exists({"filename": key}):
+            _id = self.fs.find_one({"filename": key})._id
+            self.fs.delete(_id)
+        else:
+            raise KeyError(key)
+            
+    def keys(self):
+        return self.fs.list()
+        
+    def __dir__(self):
+        return self.keys()
+        
+    def __iter__(self):
+        yield from self.keys()
+
+    def __len__(self):
+        return len(self.keys())
+    
+    def __getstate__(self):
+        return {"db": self.db, "connection_kwargs": self.connection_kwargs}
+
+    def __setstate__(self, d):
+        self.db = d["db"]
+        self.connection_kwargs = d["connection_kwargs"]

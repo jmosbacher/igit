@@ -3,8 +3,6 @@ from typing import Mapping
 from .models import CommitRef, Tag
 from .storage import SubfolderMapper, IGitModelStorage
 from .remotes import Remote
-from .settings import DEFAULT_SERIALIZER
-
 
 class Refs:
     heads: Mapping[str,CommitRef]

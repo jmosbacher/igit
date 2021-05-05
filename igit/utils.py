@@ -1,7 +1,12 @@
+
 import treelib
-from intervaltree import Interval
+import numpy as np
 import networkx as nx
+from collections import Counter
+from intervaltree import Interval
+from itertools import cycle, islice
 from cryptography.fernet import Fernet
+
 
 def dict_to_treelib(d, parent="", tree=None, show_value=True, max_tag_len=50, include_trees=False):
     if tree is None:
@@ -83,9 +88,29 @@ def ls(mapper):
     mx = min_ch(mapper)
     return [k[:mx] for k in mapper.keys()]
 
-def find_common_ancestor(db,c1,c2):
-    pass
 
+def roundrobin(*iterables):
+    "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
+    # Recipe credited to George Sakkis
+    num_active = len(iterables)
+    nexts = cycle(iter(it).__next__ for it in iterables)
+    while num_active:
+        try:
+            for next in nexts:
+                yield next()
+        except StopIteration:
+            # Remove the iterator we just exhausted from the cycle.
+            num_active -= 1
+            nexts = cycle(islice(nexts, num_active))
+
+def find_common_ancestor(store, *refs):
+#     keys = {r: set() for r in refs}
+    keys = Counter()
+    for cref in roundrobin(*[r.walk_parents(store) for r in refs]):
+        keys[cref.key] += 1
+        if keys[cref.key] == len(refs):
+            return cref
+ 
 def write_digraph_svg(dg, path):
     graph = nx.drawing.nx_pydot.to_pydot(dg)
     graph.write_svg(path)
@@ -158,3 +183,30 @@ def hierarchy_pos(G, root=None, width=1., vert_gap = 0.2, vert_loc = 0, xcenter 
 
 def generate_key():
     return Fernet.generate_key()
+
+def assign_branches(dag):
+    def ndecendents(key):
+        sum([ndecendents(s) for s in dag.successors(key) if s])
+        
+    def assign_branch(key, branch, branches):
+        if key in branches:
+            return branch
+        branches[key] = branch
+        for i,skey in enumerate(dag.successors(key)):
+            if skey in branches:
+                branch -= 1
+            branch = assign_branch(skey, branch+i, branches)
+        return branch
+    
+    branch = 0
+    branches = {}
+    for k in sorted(dag.nodes):
+        branch = assign_branch(k, branch, branches)
+    return branches
+
+def equal(a,b):
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, np.ndarray):
+        return np.all(np.equal(a, b))
+    return a == b

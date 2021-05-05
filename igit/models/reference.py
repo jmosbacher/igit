@@ -1,9 +1,14 @@
-from typing import ClassVar, List
-from .base import BaseObject
+from typing import ClassVar, List, Tuple, Sequence
 from pydantic import BaseModel, Field
-from typing import Mapping, ClassVar
+from collections.abc import Iterable
 
-from ..utils import hierarchy_pos, min_ch
+import time
+from typing import Mapping, ClassVar
+from datetime import datetime
+
+from .user import User
+from .base import BaseObject
+from ..utils import hierarchy_pos, min_ch, roundrobin
 
 
 class SymbolicRef(BaseObject):
@@ -16,6 +21,23 @@ class ObjectRef(Reference):
     key: str
     otype: ClassVar
     size: int = -1
+
+    def walk(self, store, objects=True):
+        yield self
+        obj = self.deref(store, recursive=True)
+        if objects:
+            yield obj
+        if isinstance(obj, ObjectRef):
+            for ref in obj.walk(store):
+                yield ref
+        elif isinstance(obj, BaseObject):
+            for attr in obj.__dict__.values():
+                if isinstance(attr, ObjectRef):
+                    for ref in attr.walk(store):
+                        yield ref
+                elif isinstance(attr, Iterable):
+                    for ref in roundrobin(*[a.walk(store) for a in attr if isinstance(a, ObjectRef)]):
+                        yield ref
 
     def __eq__(self, other):
         if isinstance(other, Reference):
@@ -39,7 +61,7 @@ class ObjectRef(Reference):
         return self.key
 
     def __hash__(self):
-        return hash(self.key)
+        return hash(self.otype, self.key)
 
 class BlobRef(ObjectRef):
     otype: ClassVar = "blob"
@@ -51,22 +73,29 @@ class TreeRef(ObjectRef):
 class CommitRef(ObjectRef):
     otype: ClassVar = "commit"
 
+    def walk_parents(self, store):
+        c = self.deref(store)
+        yield self
+        for pref in c.parents:
+            for p in pref.walk_parents(store):
+                yield p
+
     def deref_tree(self, store):
         commit = self.deref(store)
         return commit.tree.deref(store)
 
-    def deref_parent(self, store):
+    def deref_parents(self, store):
         commit = self.deref(store)
-        return commit.parent.deref(store)
+        return [cref.deref(store) for cref in commit.parents]
 
     def _to_digraph(self, db, dg, max_char=40):
         commit = self.deref(db)
         dg.add_node(self.key[:max_char], is_root=commit.is_root, **commit.dict())
         if commit.is_root:
             return
-        parent = commit.parent
-        dg.add_edge(self.key[:max_char], parent.key[:max_char])
-        parent._to_digraph(db, dg, max_char=max_char)
+        for parent in commit.parents:
+            dg.add_edge(self.key[:max_char], parent.key[:max_char])
+            parent._to_digraph(db, dg, max_char=max_char)
 
     def digraph(self, db, max_char=None):
         if max_char is None:
@@ -83,7 +112,7 @@ class CommitRef(ObjectRef):
         pn.extension()
         # hv.extension("bokeh")
         dg = self.digraph(db)
-        layout ={k: [v[1], v[0]] for k,v in hierarchy_pos(dg, vert_gap=1).items()}
+        layout = {k: [v[1], v[0]] for k,v in hierarchy_pos(dg, vert_gap=1).items()}
         graph = hv.Graph.from_networkx(dg, layout)
         graph = graph.opts(node_alpha=0.2, node_hover_fill_color="red", xaxis=None, yaxis=None, toolbar=None,
                         node_hover_alpha=1, node_size=20, invert_xaxis=False, 
@@ -92,8 +121,12 @@ class CommitRef(ObjectRef):
 
 class Tag(CommitRef):
     otype: ClassVar = "tag"
-    tagger: str
+    
+class AnnotatedTag(Tag):
+    otype: ClassVar = "atag"
+    tagger: User
     tag: str
+    message: str
 
 class Branch(CommitRef):
     name: str
@@ -114,31 +147,20 @@ class HEAD(SymbolicRef):
 class Commit(Reference):
     otype: ClassVar = "commit"
     tree: TreeRef
-    parent: CommitRef = None
-    author: str = None
-    commiter: str = None
+    parents: Sequence[CommitRef]
+    author: User = None
+    commiter: User = None
     message: str
-
-    def __hash__(self):
-        return hash((self.otype, self.tree.key, self.parent.key,
-                 self.author, self.commiter, self.message))
-
-    @property
-    def is_root(self):
-        return self.parent is None
-
-
-class AnnotatedTag(Commit):
-    otype: ClassVar = "atag"
-    tagger: str
-    tag: str
-
-   
-class MergeCommit(Commit):
-    otype: ClassVar = "merge"
-    parents: List[CommitRef]
+    timestamp: int
 
     def __hash__(self):
         return hash((self.otype, self.tree.key, tuple(p.key for p in self.parents),
-                 self.author, self.commiter, self.message))
+                 self.author, self.commiter, self.message, self.timestamp))
+
+    @property
+    def is_root(self):
+        return not self.parents
+
+    def is_merge(self):
+        return len(self.parents)>1
 

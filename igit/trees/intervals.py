@@ -1,6 +1,7 @@
 
 
 from intervaltree import IntervalTree, Interval
+from collections.abc import Mapping, MutableMapping, Iterable
 
 from .base import BaseTree
 
@@ -58,16 +59,16 @@ class IntervalGroup(BaseTree):
         if isinstance(key, int):
             return self.value(key)
         elif isinstance(key, tuple) and len(key)==2:
-            return self.overlap(*key)
+            return self.overlap_content(*key)
         elif isinstance(key, Iterable):
-            return self.values(key)
+            return self.values_at(key)
         elif isinstance(key, slice):
             start = key.start or self.start
             stop = key.stop or self.end
             if key.step is None:
                 return self.overlap(key.start, key.stop)
             else:
-                return self.values(range(start, stop, key.step))
+                return self.values_at(range(start, stop, key.step))
 
     def __setitem__(self, key, value):
         if isinstance(key, str):
@@ -118,6 +119,10 @@ class IntervalGroup(BaseTree):
         for iv in sorted(self._tree):
             yield (iv.begin,iv.end), iv.data
 
+    def values(self):
+        for iv in sorted(self._tree):
+            yield iv.data
+
     def __iter__(self):
         return self.keys()
 
@@ -136,11 +141,14 @@ class IntervalGroup(BaseTree):
 
     def overlap(self, begin, end):
         hits = sorted(self._tree.overlap(begin, end))
+        return [Interval(max(iv.begin, begin), min(iv.end, end), iv.data)
+                    for iv in hits]
+
+    def overlap_content(self, begin, end):
+        hits = sorted(self._tree.overlap(begin, end))
         if len(hits)==1:
             return hits[0].data
-        else:
-            return [Interval(max(iv.begin, begin), min(iv.end, end), iv.data)
-                    for iv in hits]
+        return [hit.data for hit in hits]
 
     def value(self, index):
         hits = sorted(self._tree.at(index))
@@ -148,7 +156,7 @@ class IntervalGroup(BaseTree):
             return hits[0].data
         return hits
         
-    def values(self, indices):
+    def values_at(self, indices):
         return [self.value(i) for i in indices]
 
     def set_interval(self, begin, end, value):
@@ -183,7 +191,6 @@ class IntervalGroup(BaseTree):
         from ..visualizations import IntervalTreeExplorer
         return IntervalTreeExplorer(tree=self, label=title)
 
-    
 def collect_intervals(tree, parent=(), merge_names=True, join_char="_"):
     ivs = []
     if isinstance(tree, IntervalGroup):

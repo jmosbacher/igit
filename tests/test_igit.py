@@ -3,34 +3,32 @@
 # pylint: disable=redefined-outer-name
 
 import pytest
-from click.testing import CliRunner
-
-from igit import cli
-
-
-@pytest.fixture
-def response():
-    """Sample pytest fixture.
-
-    See more at: http://doc.pytest.org/en/latest/fixture.html
-    """
-    # import requests
-    # return requests.get('https://github.com/audreyr/cookiecutter-pypackage')
+import random
+import igit
 
 
-def test_content(response):
-    """Sample pytest test function with the pytest fixture as an argument."""
-    # from bs4 import BeautifulSoup
-    # assert 'GitHub' in BeautifulSoup(response.content).title.string
-    del response
+@pytest.fixture(scope="module")
+def memory_repo():
+    r = igit.Repo.init("memory://igit_test")
+    return r
 
+def test_interval_group(memory_repo):
+    memory_repo.new_interval_group("setting1")
+    memory_repo.setting1[1,10] = 9
+    assert memory_repo.setting1[5] == 9
+    memory_repo.setting1[9,20] = 11
+    assert memory_repo.setting1[15] == 11
 
-def test_command_line_interface():
-    """Test the CLI."""
-    runner = CliRunner()
-    result = runner.invoke(cli.main)
-    assert result.exit_code == 0
-    assert 'igit.cli.main' in result.output
-    help_result = runner.invoke(cli.main, ['--help'])
-    assert help_result.exit_code == 0
-    assert '--help  Show this message and exit.' in help_result.output
+def test_label_group(memory_repo):
+    memory_repo.new_label_group("setting2")
+    memory_repo.setting2["subsetting1"] = 1
+    assert memory_repo.setting2["subsetting1"] == 1
+    memory_repo.setting2["subsetting2"] = 9.9
+    assert memory_repo.setting2["subsetting2"] == 9.9
+    memory_repo.setting2["subsetting3"] = "text"
+    memory_repo.setting2["subsetting3"] == "text"
+
+def test_commit(memory_repo):
+    memory_repo.igit.add()
+    ref = memory_repo.igit.commit(f"commit {random.randint(1,10)}")
+    assert isinstance(ref, igit.models.CommitRef)

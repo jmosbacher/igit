@@ -1,7 +1,11 @@
 from pydantic import BaseModel
 from typing import Any
-from .models import Commit
+from collections.abc import Mapping, Iterable
 
+import numpy as np
+from .models import Commit
+from .trees import BaseTree
+from .utils import equal
 
 class Change(BaseModel):
     key: Any
@@ -41,23 +45,46 @@ class CommitDiff(Diff):
     diff: Diff
 
 
-def kv_sets(store, t):
-    t = t.to_ref_tree(store)
-    k = set(t.keys())
-    v = set(t.values())
-    return t, k, v
-
 def diff_trees(store, t1, t2):
-    t1, k1, v1 = kv_sets(t1)
-    t2, k2, v2 = kv_sets(t2)
+    t1 = t1.to_ref_tree(store)
+    t2 = t2.to_ref_tree(store)
+    diffs = {}
+    for k,v in t1.items():
+        if k not in t2:
+            diffs[k] = Deletion(key=k, old=v.deref(store))
+            continue
 
-    rlookup1 = {v:k for k,v in t1.items()}
-    rlookup2 = {v:k for k,v in t2.items()}
+        if not equal(v, t2[k]):
+            v1 = v.deref(store)
+            v2 = t2[k].deref(store)
+            if isinstance(v1, BaseTree) and isinstance(v2, BaseTree):
+                diffs[k] = diff_trees(store, v1,v2)
+            elif not equal(v1, v2):
+                diffs[k] = Change(key=k, old=v1, new=v2)
+    for k,v in t2.items():
+        if k not in t1:
+            diffs[k] = Insertion(key=k, new=v)
+    return diffs
 
-    keys_added = k2.difference(k1)
-    keys_removed = k1.difference(k2)
-    vals_added =  v2.difference(v1)
-    vals_removed =  v1.difference(v2)
 
+def has_diffs(t1, t2):
+    for k,v in t1.items():
+        if k not in t2:
+            return True
+        if not equal(v, t2[k]):
+            return True
+    for k,v in t2.items():
+        if k not in t1:
+            return True
+    return False
 
-
+def first_diff(t1, t2):
+    for k,v in t1.items():
+        if k not in t2:
+            return k, None
+        if not equal(v, t2[k]):
+            return v,t2[k]
+    for k,v in t2.items():
+        if k not in t1:
+            return None,k
+    
