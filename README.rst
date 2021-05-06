@@ -130,6 +130,7 @@ There are also some nice visualizations of the working tree built in:
    :alt: Tree echarts
 
 The are utilities to help manage the interval based data, such as splitting on interval boundaries:
+
 .. image:: docs/assets/images/interval_chunking.png
    :alt: Interval chunking
 
