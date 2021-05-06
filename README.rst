@@ -67,8 +67,8 @@ configuration parameters that have defined intervals of validity attached to the
 to be able to associate a unique piece of data with an interval between two integers (e.g. array indices or timestamps)
 instead of a string of characters like a filename.
 
-Example in short
-----------------
+Example usage
+-------------
 .. code-block:: python
    
    # init repo, If you pass a valid fsspec uri, the matching filesystem protocol will be used 
@@ -143,9 +143,49 @@ And of course it wouldnt be git if you cant poke around the commit history
 .. image:: docs/assets/images/history_viewer.png
    :alt: History (commit) viewer
 
-      
+Interval indexing, who needs it?
+================================
+Exteremely useful for relating data with varying scales of resolution.
 
+
+Example:
+   - A pmt waveform sampled at 10ns resolution in non uniform intervals.
+   - PMT gain measurement sampled at 0.5 week +- 1day resolution 
+   - A processing algorithm that needs to correct the waveform by gain. eg corrected = counts/gain
    
+The expression `corrected = counts/gain` is not well defined for `len(counts) != len(gain) != 1` algorithm needs to be fed both the counts and the gain for every sample.
+   
+**"Brute force" solution**
+ 
+Feed the algorithm an "upsampled" array of the lower resolution measurement gain.
+ 
+.. code-block:: python
+
+   counts_array = [1,5,43,768,234,123,34,2345,345,23,342,36,46,4,6567,4,34]
+   gain = [3,3,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,4,4,4]
+
+This is obviously inefficient but is guarenteed to always work given enough resources.
+
+**Alternative approach**
+Batch the high resolution array into chunks of constant value of the low resolution array. Run the algorithm on each batch where gain is constant and therefore the operation `corrected = counts/gain` is well defined. Works well and very efficient.
+
+But what happens when you have a third value with a completely different resolution? e.g. QE, now you need to take all of these scales into account when batching the high res array.
+
+How can this be generalized to arbitrary resolutions? Interval indexing.
+
+Most indexes define a one-to-one mapping from some label space to an offset for rapid lookup, an index can be used to "align" array binary operations on array of different length/different sorting. The interval index maps between continous intervals and indices, where the query is on overlap rather than equality.
+The downside is that overlap queries can be very expensive using brute force methods, for efficient indexing on intervals, tree-like structures are needed, e.g the interval tree and nested containement list.
+
+The O(logn+m) complexity of overlap queries allow for real time upsampling at varying resolution as well as splitting on intersection techniques to scale to large arrays.
+
+**Further complications**
+   - Many times some of the values can change over time and therefore need to be versioned for reproducability.
+   - Some values are not values at all but rather algorithms/collections of values.
+
+
+**Solution: meet igit**
+A git-like version management system that supports interval trees as first class citizens as well as (almost) arbitrary python objects.
+
 
 
 * Free software: Apache-2.0
@@ -160,7 +200,10 @@ Features
 * ConfigGroup for tracking interval of validity configuration objects
 * Visualization tools
 * Config "interval_chunking", splits your config into intervals of constant parameter values (for a subset of parameters or all)
-
+* Optional in-flight compression
+* Optional in-flight encryption
+* Supports remote/local file systems using fsspec 
+  
 Future Improvements
 -------------------
 * Option to add custom tree classes via plugins
@@ -171,8 +214,11 @@ Credits
 -------
 This package relies on the intervaltree_ package for all interval tree manipulation
 
+This package relies on the fsspec_ package for file system abstraction.
+
 This package was created with Cookiecutter_ and the `briggySmalls/cookiecutter-pypackage`_ project template.
 
 .. _intervaltree: https://github.com/chaimleib/intervaltree
+.. _fsspec: https://github.com/intake/filesystem_spec/
 .. _Cookiecutter: https://github.com/audreyr/cookiecutter
 .. _`briggySmalls/cookiecutter-pypackage`: https://github.com/briggySmalls/cookiecutter-pypackage
