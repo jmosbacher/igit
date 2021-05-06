@@ -21,7 +21,7 @@ class Repo:
     fstore: Mapping 
     igit: IGit
 
-    def __init__(self, config, key=None):
+    def __init__(self, config, key=None, **kwargs):
         if isinstance(config,  pathlib.Path):
             config = str(config)
         if isinstance(config, str):
@@ -31,7 +31,7 @@ class Repo:
         if not isinstance(config, Config):
             raise TypeError("config must be a valid path or Config object")
 
-        repo = fsspec.get_mapper(config.root_path)
+        repo = fsspec.get_mapper(config.root_path, **kwargs)
         
         encryptor_class = ENCRYPTORS.get(config.encryption, None)
         if encryptor_class is not None and key is not None:
@@ -60,17 +60,23 @@ class Repo:
 
     @classmethod
     def init(cls, path, bare=False, main_branch="master",
-             username=None, email=None, **kwargs):
+             username=None, email=None, connection_kwargs={}, **kwargs):
         if isinstance(path,  pathlib.Path):
             path = "file://" + str(path)
         if isinstance(path, str):
             repo = fsspec.get_mapper(path)
         else:
             repo = path
+            protocol = repo.fs.protocol
+            if isinstance(protocol, tuple):
+                protocol = protocol[0]
+            if protocol == "ssh":
+                path = f"ssh://{repo.host}:{repo.root}"
+            else:
+                path = protocol + "://" + repo.root
         if not isinstance(repo, fsspec.mapping.FSMap):
             raise TypeError("repo must be a valid fsspec path or FSMap")
         
-        path = repo.fs.protocol + "://" + repo.root
         if CONFIG_NAME in repo:
             raise ValueError(f"igit repository already exists in path.")
 
@@ -82,7 +88,7 @@ class Repo:
                          user=user, root_path=path, **kwargs)
         repo[CONFIG_NAME] = config.json(indent=3).encode()
         
-        return cls(config, key=key)
+        return cls(config, key=key, connection_kwargs=connection_kwargs)
 
     @classmethod
     def clone(cls, source, target=None, branch="master", **kwargs):
@@ -130,11 +136,16 @@ class Repo:
 
     @property
     def uri(self):
-        if hasattr(self.fstore, "fs"):
-
-            uri = self.fstore.fs.protocol+"://"+self.path
+        
+        protocol = self.fstore.fs.protocol
+        if isinstance(protocol, tuple):
+            protocol = protocol[-1]
+        if protocol in ["ssh", "sftp"]:
+            uri = f"{protocol}://{self.fstore.fs.host}:{self.fstore.root}"
         else:
-            uri = self.path
+            uri = protocol + "://" + self.fstore.root
+            # uri = path #self.fstore.fs.protocol+"://"+self.path
+        
         return uri
 
     @property
@@ -232,4 +243,13 @@ class Repo:
 
     def browse_files(self):
         from fsspec.gui import FileSelector
-        return FileSelector(self.uri)
+        sel = FileSelector()
+
+        protocol = self.fstore.fs.protocol
+        if isinstance(protocol, tuple):
+            protocol = protocol[-1]
+        sel.protocol.value = sel.prev_protocol = protocol
+        sel._fs = self.fstore.fs
+        sel.url.value = self.fstore.root
+        sel.go_clicked()
+        return sel

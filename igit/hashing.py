@@ -53,9 +53,9 @@ def sha1_hash(data):
 def container_hash(obj):
     try:
         hashable = hashablize(obj)
-        data = json.dumps(hashable, cls=NumpyJSONEncoder)
+        data = json.dumps(hashable, cls=NumpyJSONEncoder).encode()
     except:
         data = dill.dumps(obj)
-    return sha1_hash(data.encode())
+    return sha1_hash(data)
 
 HASH_FUNCTIONS["sha1"] = container_hash

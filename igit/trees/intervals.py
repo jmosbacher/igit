@@ -69,6 +69,13 @@ class IntervalGroup(BaseTree):
                 return self.overlap(key.start, key.stop)
             else:
                 return self.values_at(range(start, stop, key.step))
+    @property
+    def start(self):
+        return self._tree.begin()
+
+    @property
+    def end(self):
+        return self._tree.end()
 
     def __setitem__(self, key, value):
         if isinstance(key, str):

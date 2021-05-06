@@ -120,10 +120,10 @@ class CommitRef(ObjectRef):
         return pn.panel(graph, sizing_mode="stretch_both")
 
 class Tag(CommitRef):
-    otype: ClassVar = "tag"
+    otype: ClassVar = "commit"
     
 class AnnotatedTag(Tag):
-    otype: ClassVar = "atag"
+    otype: ClassVar = "commit"
     tagger: User
     tag: str
     message: str

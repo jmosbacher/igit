@@ -31,6 +31,34 @@ filename    interval
 tree/folder interval-tree
 =========== =============
 
+
+Git is great for source code
+----------------------------
+Git is not so great for the objects the code creates and the configuration parameters the code consumes.
+  
+**The objects the code creates (usually serialized and saved to binary files)**
+Git tracks hierchies of folders and text content. Technically it can track binary data but it has no way of identifying which part of the object the binary file represents has changed and which is the same so it will save the entire file for even the smallest change, this defeats the purpose of the git object store and the repository quickly becomes massive.
+
+**The configuration parameters the code consumes**
+Git is meant to track changes over time in a distributed manner but at any time there is only one working tree. 
+Configuration values can have time dependence, and a change to the value relavent to a specific time interval should not
+cause a merge conflict with an edit of a different time interval. Git will easily merge two changes made to different
+files but there is no way of defining the interval of validity for a file change.
+    
+**iGit is here to help**
+iGit supports interval trees as first class citizens.Interval could be intervals of time or intervals 
+of array indices or anything else you can think of. The concept of a filename is generalized to an interval,
+so changes to two different intervals in iGit is equivalent to changing two different files in git. 
+This allows for easy merging of changes being done on different intervals. e.g. two people working on the ideal 
+parameters for processing two different datasets, taken e.g. at different times. Both analysts want to use the same 
+algorithms and code but just tune the parameters to different values and then merge the results together for a combined 
+configuration used by the entire collaboration. But they also want to version their configurations. So do they make two
+config files and add them to a repository? what if they later on discover that the data actually should be split in three
+parts with three configs? git is simply not designed for this kind of data with validity intervals attached to them.
+
+iGit is built from the ground up with these use cases in mind but reusing gits architecture and reimplementing it for 
+arbitrary tree structures as well as python objects.
+
 in iGit the structure being versioned is a hiearchy of trees and blobs like git, only instead of just 
 supporting folder-like trees (string->value mapping) iGit supports interval trees as well.
 An interval tree maps intervals to data, data can contain a python object (analog of a file) or
@@ -38,7 +66,6 @@ another tree (analog of a folder). This kind of structure is useful e.g. when tr
 configuration parameters that have defined intervals of validity attached to them. In these cases its useful
 to be able to associate a unique piece of data with an interval between two integers (e.g. array indices or timestamps)
 instead of a string of characters like a filename.
-
 
 Example in short
 ----------------
@@ -102,7 +129,7 @@ There are also some nice visualizations of the working tree built in:
 .. image:: docs/assets/images/echarts_tree_view.png
    :alt: Tree echarts
 
-
+The are utilities to help manage the interval based data, such as splitting on interval boundaries:
 .. image:: docs/assets/images/interval_chunking.png
    :alt: Interval chunking
 
