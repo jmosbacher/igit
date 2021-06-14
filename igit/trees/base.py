@@ -6,21 +6,20 @@ from abc import ABC, abstractmethod, abstractclassmethod, abstractstaticmethod
 from collections.abc import Mapping, MutableMapping, Iterable
 from collections import UserDict, defaultdict
 
-from ..models import ObjectRef, BlobRef, TreeRef, Commit, Tag
+from ..models import ObjectRef #, BlobRef, TreeRef, Commit, Tag
 from ..utils import dict_to_treelib, equal
-# from ..diffs import Change, Insertion, Deletion, Diff
-
+from ..diffs import Edit, Patch
 
 def camel_to_snake(name):
   name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
   return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
+
 
 class KeyTypeError(TypeError):
     pass
 
 class BaseTree(MutableMapping):
     TREE_CLASSES = []
-
 
     @classmethod
     def register_tree_class(cls, class_):
@@ -80,7 +79,7 @@ class BaseTree(MutableMapping):
             if isinstance(v, BaseTree):
                 child = v.to_echarts_series(k)
             else:
-                child = {"name": k, "value": v}
+                child = {"name": k, "value": str(v)}
             children.append(child)
         return {"name": name, "children": children }
 
@@ -106,41 +105,21 @@ class BaseTree(MutableMapping):
 
     __str__ = __repr__
 
-    def diff(self, other):
-        #TODO: compare hashes via refs instead of using python eq. 
-        diffs = {}
-        for k,v in self.items():
-            if k in other:
-                if isinstance(v, BaseTree):
-                    d = v.diff(other[k])
-                    if d:
-                        diffs[k] = d
-                elif isinstance(v, np.ndarray):
-                    if np.any(np.not_equal(v, other[k])):
-                        diffs[k] = Change(key=k, old=v, new=other[k])
-                elif v!=other[k]:
-                    diffs[k] = Change(key=k, old=v, new=other[k])
-            else:
-                diffs[k] = Deletion(key=k, old=v)
-
-        for k,v in other.items():
-            if k not in self:
-                diffs[k] = Insertion(key=k, new=v)
-        return diffs
-
     def hash_object(self, store, obj, otype="blob"):
         if isinstance(obj, BaseTree):
-            obj = obj.to_ref_tree(store)
+            obj = obj.to_merkle_tree(store)
             otype = "tree"
         return self._hash_object(store, obj, otype)
 
-    def to_ref_tree(self, store):
+    def to_merkle_tree(self, store):
         d = {}
-        for k,v in self.items():
+        for k,v in sorted(self.items()):
             if isinstance(v, ObjectRef):
                 d[k] = v
+            elif isinstance(v, BaseTree):
+                d[k] = v.to_merkle_tree(store)
             else:
-                d[k] = self.hash_object(store, v)
+                d[k] = store.hash_object(v)
         return self.__class__.from_dict(d)
 
     def hash_tree(self, store):
@@ -155,15 +134,15 @@ class BaseTree(MutableMapping):
         return self.__class__.from_dict(d)
 
     def _hash_object(self, store, obj, otype):
-        key = store.hash_object(obj)
-        size = sys.getsizeof(obj)
-        if isinstance(obj, BaseTree):
-            ref = TreeRef(key=key, tree_class=obj.__class__.__name__,
-                 size=size)
-        else:
-            ref = BlobRef(key=key, size=size)
-        return ref
-
+        return store.hash_object(obj)
+        # key = store.hash_object(obj)
+        # size = sys.getsizeof(obj)
+        # if isinstance(obj, BaseTree):
+        #     ref = TreeRef(key=key, tree_class=obj.__class__.__name__,
+        #          size=size)
+        # else:
+        #     ref = BlobRef(key=key, size=size)
+        # return ref
 
     def iter_subtrees(self):
         for k,v in self.items():
@@ -188,6 +167,9 @@ class BaseTree(MutableMapping):
             if not equal(v, other[k]):
                 return False
         return True
+    
+    def _igit_hash_object_(self, odb):
+        return self.hash_tree(odb)
 
     @abstractstaticmethod
     def compatible_keys(keys: Iterable)->bool:
@@ -213,5 +195,30 @@ class BaseTree(MutableMapping):
     def to_native(self):
         pass
     
+    @abstractmethod 
+    def diff(self, other):
+        pass
+    
+    def diff_edits(self, other):
+        diff = self.diff(other)
+        return get_edits(diff)
 
+    def apply_diff(self, diff):
+        result = self.__class__.from_dict(self.to_dict())
+        for k,v in diff.items():
+            if isinstance(v, Patch):
+                v.apply(k, result)
+            elif isinstance(v, BaseTree):
+                result[k] = result[k].apply_diff(v)
+        return result
 
+def get_edits(diff):
+    edits = diff.__class__()
+    for k,v in diff.items():
+        if isinstance(v, BaseTree):
+            cs = get_edits(v)
+            if len(cs):
+                edits[k] = cs
+        elif isinstance(v, Edit):
+            edits[k] = v
+    return edits

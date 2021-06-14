@@ -4,6 +4,9 @@ from intervaltree import IntervalTree, Interval
 from collections.abc import Mapping, MutableMapping, Iterable
 
 from .base import BaseTree
+from .labels import LabelGroup
+from ..utils import equal
+from ..diffs import Edit, Insertion, Deletion, Diff
 
 
 @BaseTree.register_tree_class
@@ -38,7 +41,7 @@ class IntervalGroup(BaseTree):
         return f"{key[0]}-{key[1]}"
 
     def label_to_key(self, label):
-        return tuple(apply(int, label.split("-")))
+        return tuple(map(int, label.split("-")))
 
     def to_label_dict(self):
         return {f"{iv.begin}-{iv.end}": iv.data for iv in sorted(self._tree)}
@@ -108,12 +111,12 @@ class IntervalGroup(BaseTree):
     def __delitem__(self, key):
         if isinstance(key, str):
             key = self.label_to_key(key)
-        if isinstance(key, tuple) and len(key)==2:
+        elif isinstance(key, tuple) and len(key)==2:
             self._tree.chop(*key)
-        
-        if isinstance(key, slice):
+        elif isinstance(key, slice):
             self._tree.chop(key.start, key.end)
-        raise TypeError("Must pass a tuple of (begin,end) or slice.")
+        else:
+            raise TypeError("Must pass a tuple of (begin,end) or slice.")
     
     def keys(self):
         for iv in sorted(self._tree):
@@ -138,7 +141,10 @@ class IntervalGroup(BaseTree):
 
     def __bool__(self):
         return bool(len(self._tree))
-    
+
+    def __contains__(self, key):
+        return bool(self[key])
+
     def __getstate__(self):
         return tuple(sorted([tuple(iv) for iv in self._tree]))
 
@@ -197,6 +203,29 @@ class IntervalGroup(BaseTree):
         pn.extension()
         from ..visualizations import IntervalTreeExplorer
         return IntervalTreeExplorer(tree=self, label=title)
+
+    def diff(self, other):
+        if not isinstance(other, self.__class__):
+            return Edit(old=self, new=other)
+        if self == other:
+            return self.__class__()
+        u = self._tree.union(other._tree)
+        u.split_overlaps()
+        u.merge_equals()
+        diffs = self.__class__()
+        for iv in u:
+            k = iv.begin,iv.end
+            if k not in self:
+                diffs[k] = Insertion(new=other[k])
+            elif k not in other:
+                diffs[k] = Deletion(old=self[k])
+            elif isinstance(self[k], BaseTree) and isinstance(other[k], BaseTree):
+                d = self[k].diff(other[k])
+                if len(d):
+                    diffs[k] = d
+            elif not equal(self[k], other[k]):
+                diffs[k] = Edit(old=self[k], new=other[k])
+        return diffs
 
 def collect_intervals(tree, parent=(), merge_names=True, join_char="_"):
     ivs = []

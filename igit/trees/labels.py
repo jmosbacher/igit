@@ -1,6 +1,8 @@
 
 
 from .base import BaseTree
+from ..utils import equal
+from ..diffs import Edit, Insertion, Deletion, Diff
 
 
 @BaseTree.register_tree_class
@@ -33,6 +35,28 @@ class LabelGroup(BaseTree):
 
     def items(self):
         return self._mapping.items()
+
+    def diff(self, other):
+        if not isinstance(other, self.__class__):
+            return Edit(old=self, new=other)
+        if self == other:
+            return self.__class__()
+        diffs = self.__class__()
+        for k,v in self.items():
+            if k not in other:
+                diffs[k] = Deletion(old=v)
+                continue
+            if not equal(v, other[k]):
+                if isinstance(v, BaseTree) and isinstance(other[k], BaseTree):
+                    d = v.diff(other[k])
+                    if len(d):
+                        diffs[k] = d                    
+                else:
+                    diffs[k] = Edit(old=v, new=other[k])
+        for k,v in other.items():
+            if k not in self:
+                diffs[k] = Insertion(new=v)
+        return diffs
 
     def __getattr__(self, key):
         try:

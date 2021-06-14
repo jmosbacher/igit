@@ -2,17 +2,23 @@ import sys
 import time
 from datetime import datetime
 from collections.abc import Mapping
+from collections import Counter
 
 # from .object_store import ObjectStore
-from .models import ObjectRef, Commit, Tag, AnnotatedTag, User
+from .models import ObjectRef, Commit, Tag, AnnotatedTag, User, CommitRef
 from .refs import Refs
 from .trees import BaseTree, collect_intervals
-from .diffs import Diff, diff_trees, has_diffs
+from .diffs import Diff, has_diffs
 from .config import Config
 from .storage import IGitObjectStore
+from .utils import roundrobin
 
 class CommitError(RuntimeError):
     pass
+
+class MergeError(CommitError):
+    pass
+
 
 def get_object_ref(key, otype, size=-1):
     """
@@ -77,7 +83,7 @@ class IGit:
 
     @property
     def HEAD_TREE(self):
-        if self.HEAD_TREE is None:
+        if self.HEAD is None:
             return None
         return self.HEAD.deref_tree(self.objects)
 
@@ -113,10 +119,7 @@ class IGit:
             return obj.hash_tree(self.objects)
         if hasattr(obj, "otype"):
             otype = obj.otype
-        key = self.objects.hash_object(obj)
-        size = sys.getsizeof(obj)
-        ref = get_object_ref(key, otype=otype, size=size)
-        return ref
+        return self.objects.hash_object(obj)
 
     def update_index(self, *keys):
         pass
@@ -129,10 +132,22 @@ class IGit:
         if not keys:
             keys = self.WORKING_TREE.keys()
         for key in keys:
-            index[key] = self.WORKING_TREE[key]
+            obj = self.WORKING_TREE[key]
+            if not self.objects.consistent_hash(obj):
+                raise ValueError(f"{key} of type {type(obj)} cannot be consistently hashed.")
+            index[key] = obj
         for key in index.keys():
             if key not in self.WORKING_TREE:
                 del self.WORKING_TREE[key]
+        self.index = index.hash_tree(self.objects)
+        return self.index
+
+    def rm(self, *keys):
+        index = self.INDEX_TREE
+        if not keys:
+            keys = self.WORKING_TREE.keys()
+        for key in keys:
+            del index[key]
         self.index = index.hash_tree(self.objects)
         return self.index
 
@@ -150,7 +165,7 @@ class IGit:
             commiter = User(**commiter)
         parents = ()
         if self.HEAD is not None:
-            parents =(self.HEAD,)
+            parents = (self.HEAD, )
         commit = Commit(parents=parents, tree=self.index, message=message,
                         author=author, commiter=commiter, timestamp=int(time.time()))
         cref = self.hash_object(commit, otype="commit")
@@ -159,10 +174,11 @@ class IGit:
     
     @property
     def has_unstaged_changes(self):
-        index = self.INDEX_TREE
-        return has_diffs(index, self.WORKING_TREE)
+        return self.INDEX_TREE != self.WORKING_TREE
 
     def checkout(self, key, branch=False):
+        if self.has_unstaged_changes:
+            raise CommitError("You have unstaged changes in your working tree.")
         if branch:
             self.branch(key)
         if key in self.refs.heads:
@@ -198,8 +214,31 @@ class IGit:
         self.refs.tags[name] = tag
         return tag
 
-    def merge(self, onto):
-        pass
+    def merge(self, other, message, commiter=None):
+        if self.has_unstaged_changes:
+            raise MergeError("You have unstaged changes in your working tree.")
+        common = self.find_common_ancestor(self.HEAD, other).deref_tree(self.objects)
+        ours = self.get_branch_tree(self.HEAD)
+
+        incoming = self.get_branch_tree(other)
+
+        if len( common.diff(ours).diff_edits(common.diff(incoming)) ):
+            raise MergeError(f"Cannot merge with {other}, conflicts exist")
+        
+        if commiter is None:
+            commiter = self.config.user
+        elif isinstance(commiter, dict):
+            commiter = User(**commiter)
+
+        parents = (self.HEAD, self.get_ref(other))
+        merged = self.HEAD_TREE.apply_diff(common.diff(incoming))
+        merged_ref = merged.hash_tree(self.objects)
+
+        commit = Commit(parents=parents, tree=merged_ref, message=message,
+                         commiter=commiter, timestamp=int(time.time()))
+        cref = self.hash_object(commit, otype="commit")
+        self.refs.heads[self.config.HEAD] = cref
+        return cref
     
     def fetch(self, remote=None):
         pass
@@ -216,6 +255,12 @@ class IGit:
     def rev_parse(self, key):
         pass
 
+    def commit_graph(self):
+        return self.HEAD.digraph(self.objects)
+
+    def show_commits(self):
+        return self.HEAD.visualize_heritage(self.objects)
+
     def cat_tree(self, ref, otype="blob"):
         if isinstance(ref, str):
             ref = self.get_ref(ref)
@@ -227,25 +272,48 @@ class IGit:
         return obj
 
     def diff(self, ref1, ref2, otype="commit"):
-        tree1 = self.cat_tree(ref1, otype=otype)
-        tree2 = self.cat_tree(ref2, otype=otype)
-        diffs = diff_trees(self.objects, tree1, tree2)
+        tree1 = ref1.deref(self.objects)
+        tree2 = ref2.deref(self.objects)
+        diffs = tree1.diff(tree2)
         return Diff(old=str(ref1), new=str(ref2), diffs=diffs)
 
-    def get_ref(self, key):
-        if key in self.objects:
-            data = self.objects[key]
-        else:
-            for k in self.objects.keys():
-                if k.startswith(key):
-                    key = k
-                    data = self.objects[k]
-                    break
+    def get_branch_tree(self, branch):
+        if isinstance(branch, CommitRef):
+                ref = branch
+        elif isinstance(branch, str):
+            if branch in self.refs.heads:
+                ref = self.refs.heads[branch]
             else:
-                raise KeyError(key)
-        obj = self.objects.cat_object(data)
-        for class_ in ObjectRef.__subclasses__():
-            if class_.otype == obj.otype:
-                return class_(key=key, size=-1)
-        else:
-            raise KeyError(key)
+                ref = self.get_ref(branch)
+        return ref.deref_tree(self.objects)
+
+    def get_ref(self, key):
+        if isinstance(key, ObjectRef):
+            return key
+        if key in self.refs.heads:
+            return self.refs.heads[key]
+        if key in self.refs.tags:
+            return self.refs.tags[key]
+
+        obj = self.objects.fuzzy_get(key)
+        ref = self.objects.hash_object(obj)
+        return ref
+
+    def find_common_ancestor(self, *branches):
+        refs = []
+        for branch in branches:
+            if isinstance(branch, CommitRef):
+                ref = branch
+            elif isinstance(branch, str):
+                if branch in self.refs.heads:
+                    ref = self.refs.heads[branch]
+                else:
+                    ref = self.get_ref(branch)
+            refs.append(ref)
+
+        keys = Counter()
+        for cref in roundrobin(*[r.walk_parents(self.objects) for r in refs]):
+            keys[cref.key] += 1
+            if keys[cref.key] == len(refs):
+                return cref
+    

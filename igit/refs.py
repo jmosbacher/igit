@@ -17,3 +17,17 @@ class Refs:
     def update(self, other):
         self.heads.update(other.heads)
         self.tags.update(other.tags)
+
+    def __getitem__(self, key):
+        if key in self.heads:
+            return self.heads[key]
+        if key in self.tags:
+            return self.tags[key]
+        raise KeyError(key)
+
+    def __contains__(self, key):
+        if key in self.heads:
+            return True
+        if key in self.tags:
+            return True
+        return False

@@ -49,7 +49,8 @@ def demo_repo(path="memory://igit_demo"):
     r.labels["subsetting7"] = 10
     r.igit.add()
     ref = r.igit.commit(f"branch commit {random.randint(20,30)}")
-    r.labels["subsetting7"] = 110
+    r.igit.checkout("master")
+    r.labels["subsetting8"] = 110
     r.igit.add()
     ref = r.igit.commit(f"branch commit {random.randint(20,30)}")
     r.igit.tag("test_tag")

@@ -4,6 +4,7 @@ from .diffs import Diff
 class MergeStrategy:
     source: Commit
     target: Commit
+    
 
     def apply(self, db):
         raise NotImplementedError

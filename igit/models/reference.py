@@ -8,7 +8,7 @@ from datetime import datetime
 
 from .user import User
 from .base import BaseObject
-from ..utils import hierarchy_pos, min_ch, roundrobin
+from ..utils import hierarchy_pos, min_ch, roundrobin, assign_branches
 
 
 class SymbolicRef(BaseObject):
@@ -106,18 +106,29 @@ class CommitRef(ObjectRef):
         return dg
 
     def visualize_heritage(self, db):
-        import panel as pn
+        import pandas as pd
         import holoviews as hv
-        
-        pn.extension()
-        # hv.extension("bokeh")
-        dg = self.digraph(db)
-        layout = {k: [v[1], v[0]] for k,v in hierarchy_pos(dg, vert_gap=1).items()}
-        graph = hv.Graph.from_networkx(dg, layout)
-        graph = graph.opts(node_alpha=0.2, node_hover_fill_color="red", xaxis=None, yaxis=None, toolbar=None,
-                        node_hover_alpha=1, node_size=20, invert_xaxis=False, 
-                        tools=['hover'], directed=True, arrowhead_length=0.01, )
-        return pn.panel(graph, sizing_mode="stretch_both")
+        import networkx as nx
+        import panel as pn
+
+        dag = self.digraph(db)
+        branches = assign_branches(dag)
+        layout = []
+        for i,k in enumerate(nx.topological_sort(dag)):
+            node = dag.nodes[k]
+            layout.append({"name": k, "col": branches[k], "row": i, "message":node["message"]}) 
+        df = pd.DataFrame(layout)
+        df["message_col"] = df.col.max()+2
+        df["message_col_end"] = df.col.max()+10
+
+        plot = hv.Points(df, ["col", "row"]).opts(size=25, alpha=0.8, hover_alpha=0.7,
+         hover_line_color="black", hover_fill_color="magenta", tools=["hover"])*hv.Labels(df, ["col", "row"], "name")
+        plot = plot*hv.Labels(df, ["message_col", "row"], ["message"]).opts( text_align="left", xoffset=0)
+        plot = plot*hv.Segments(df,["col", "row", "message_col_end", "row"]).opts(line_width=30, alpha=0.3, 
+                        line_cap="round",color="grey")
+
+        return pn.panel(plot.opts(responsive=True, xaxis=None, yaxis=None,
+                     toolbar=None, show_grid=False), width=400, height=400)
 
 class Tag(CommitRef):
     otype: ClassVar = "commit"

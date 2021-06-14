@@ -97,8 +97,12 @@ class Repo:
         repo = cls.init(target, **kwargs)
         source = cls(source)
         head = source.igit.refs.heads[branch]
-        for k,v in source.igit.objects.items():
-            repo.igit.objects[k] = v
+        for obj in head.walk(source.igit.objects):
+            repo.igit.objects.hash_object(obj)
+
+        # for k,v in source.igit.objects.items():
+        #     repo.igit.objects[k] = v
+
         repo.igit.refs.heads[branch] = head
         repo.igit.config = source.igit.config
         repo.igit.config.root_path = target
@@ -227,6 +231,7 @@ class Repo:
         return ls(self.fstore)
 
     def show_heritage(self):
+        import panel as pn
         if self.igit.HEAD is None:
             return pn.Column()
         return self.igit.HEAD.visualize_heritage(self.igit.objects)
@@ -239,7 +244,7 @@ class Repo:
         pipeline, dag = get_pipeline_dag(self.igit.HEAD, self.igit.objects)
         pipeline.define_graph(dag)
         return pipeline
-
+    
 
     def browse_files(self):
         from fsspec.gui import FileSelector

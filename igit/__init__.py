@@ -8,3 +8,4 @@ from .repo import Repo
 from .utils import *
 from . import server, interval_utils, storage
 from .demo import demo_repo
+from .trees import *

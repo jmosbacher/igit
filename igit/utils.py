@@ -6,7 +6,7 @@ from collections import Counter
 from intervaltree import Interval
 from itertools import cycle, islice
 from cryptography.fernet import Fernet
-
+import random
 
 def dict_to_treelib(d, parent="", tree=None, show_value=True, max_tag_len=50, include_trees=False):
     if tree is None:
@@ -102,14 +102,6 @@ def roundrobin(*iterables):
             # Remove the iterator we just exhausted from the cycle.
             num_active -= 1
             nexts = cycle(islice(nexts, num_active))
-
-def find_common_ancestor(store, *refs):
-#     keys = {r: set() for r in refs}
-    keys = Counter()
-    for cref in roundrobin(*[r.walk_parents(store) for r in refs]):
-        keys[cref.key] += 1
-        if keys[cref.key] == len(refs):
-            return cref
  
 def write_digraph_svg(dg, path):
     graph = nx.drawing.nx_pydot.to_pydot(dg)
@@ -185,28 +177,40 @@ def generate_key():
     return Fernet.generate_key()
 
 def assign_branches(dag):
+    
     def ndecendents(key):
         sum([ndecendents(s) for s in dag.successors(key) if s])
         
     def assign_branch(key, branch, branches):
         if key in branches:
-            return branch
+            return branch - 1
         branches[key] = branch
         for i,skey in enumerate(dag.successors(key)):
-            if skey in branches:
-                branch -= 1
             branch = assign_branch(skey, branch+i, branches)
         return branch
     
     branch = 0
     branches = {}
-    for k in sorted(dag.nodes):
+    for k in nx.topological_sort(dag):
         branch = assign_branch(k, branch, branches)
     return branches
 
 def equal(a,b):
-    if type(a) is not type(b):
+    if a.__class__.__name__ != b.__class__.__name__:
         return False
+    if isinstance(a, list):
+        return [equal(ai,bi) for ai,bi in zip(a,b)]
+    if isinstance(a, dict):
+        return {k: equal(a[k],b[k]) for k in a}
+
+    try:
+        ar, br = a.__reduce__(), b.__reduce__()
+        if isinstance(ar, str):
+            return ar == br
+        else:
+            return ar[1] == br[1]
+    except:
+        pass
     if isinstance(a, np.ndarray):
         return np.all(np.equal(a, b))
     return a == b
