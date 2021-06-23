@@ -54,11 +54,20 @@ class ConfigGroup(LabelGroup):
         import panel as pn
         pn.extension()
         df = self.boundaries_df(begin, end, *keys)
-        df["label"] = df.value.apply(lambda x: str(x)[:12])
-        opts = dict(color="label", responsive=True, cmap="Category10", title="Interval boundaries",
+        df["str_value"] = df.value.apply(lambda x: str(x))
+        df["label"] = df.value.apply(lambda x: str(x)[:8])
+
+        opts = dict(color="str_value", responsive=True, cmap="Category10", title="Interval boundaries",
          height=len(df["parameter"].unique())*30+80, line_width=30, alpha=0.5)
         opts.update(**kwargs)
-        segments = hv.Segments(df, ["begin","parameter","end", "parameter"], "label").opts(**opts)
-        labels = hv.Labels(df, ["mid", "parameter"], "label")
+        segments = hv.Segments(df, ["begin","parameter","end", "parameter"], ["label", 'str_value']).opts(**opts)
+        labels = hv.Labels(df, ["mid", "parameter"], ["label", 'str_value'])
         vline = hv.Overlay([hv.VLine(x).opts(color="grey", line_width=1) for x in df.end.unique()])
-        return pn.Column(segments*labels*vline, sizing_mode="stretch_both")
+        range_view = segments*labels*vline
+        range_selection = hv.Segments((begin-0.1*(end-begin), 'view', end+0.1*(end-begin), 'view', 'full range'), ["begin","parameter","end", "parameter"], )
+        range_selection.opts(height=100, yaxis=None, default_tools=[], responsive=True,)
+
+        hv.plotting.links.RangeToolLink(range_selection, segments)
+        layout = (range_view+range_selection).cols(1)
+        layout = layout.opts(hv.opts.Layout(shared_axes=False, merge_tools=False))
+        return pn.Column(layout, sizing_mode="stretch_both")
