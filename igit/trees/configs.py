@@ -49,21 +49,27 @@ class ConfigGroup(LabelGroup):
                 config[(iv.begin, iv.end,)][k] = iv.data
         return dict(config)
 
-    def show_boundaries(self, begin, end, *keys,  **kwargs):
+    def show_boundaries(self, begin, end, *keys, show_labels=True,  **kwargs):
         import holoviews as hv
         import panel as pn
         pn.extension()
         df = self.boundaries_df(begin, end, *keys)
-        df["str_value"] = df.value.apply(lambda x: str(x))
-        df["label"] = df.value.apply(lambda x: str(x)[:8])
+        df["value_str"] = df.value.apply(lambda x: str(x))
+        
 
-        opts = dict(color="str_value", responsive=True, cmap="Category10", title="Interval boundaries",
-         height=len(df["parameter"].unique())*30+80, line_width=30, alpha=0.5)
+        opts = dict(color="value_str", responsive=True, cmap="Category20", title="Interval boundaries",
+         height=len(df["parameter"].unique())*30+80, line_width=30, alpha=0.5, tools=['hover'])
         opts.update(**kwargs)
-        segments = hv.Segments(df, ["begin","parameter","end", "parameter"], ["label", 'str_value']).opts(**opts)
-        labels = hv.Labels(df, ["mid", "parameter"], ["label", 'str_value'])
+        segments = hv.Segments(df, ["begin","parameter","end", "parameter"], ['value_str']).opts(**opts)
+        
         vline = hv.Overlay([hv.VLine(x).opts(color="grey", line_width=1) for x in df.end.unique()])
-        range_view = segments*labels*vline
+        range_view = segments
+        if show_labels:
+            df["label"] = df.value.apply(lambda x: str(x)[:8])
+            labels = hv.Labels(df, ["mid", "parameter"], ["label", 'value_str'])
+            range_view = range_view*labels
+        range_view = range_view*vline
+
         range_selection = hv.Segments((begin-0.1*(end-begin), 'view', end+0.1*(end-begin), 'view', 'full range'), ["begin","parameter","end", "parameter"], )
         range_selection.opts(height=100, yaxis=None, default_tools=[], responsive=True,)
 
