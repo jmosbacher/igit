@@ -33,7 +33,7 @@ requests = {version = "^2.25.1", extras = ["server"]}
 Jinja2 = {version = "^2.11.3", extras = ["server"]}
 fastapi = {version = "^0.63.0", extras = ["server"]}
 msgpack = "^1.0.2"
-hypothesis = {extras = ["numpy", "pandas"], version = "^6.10.1"}
+hypothesis = {extras = ["numpy", "pandas"], version = "^6.14.2"}
 cryptography = "^3.4.7"
 pymongo = "^3.11.3"
 dill = "^0.3.3"
