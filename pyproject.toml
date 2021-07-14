@@ -1,7 +1,7 @@
 [tool]
 [tool.poetry]
 name = "interval-git"
-version = "0.1.0"
+version = "0.1.1"
 homepage = "https://github.com/jmosbacher/igit"
 description = "Top-level package for igit."
 authors = ["Yossi Mosbacher <joe.mosbacher@gmail.com>"]
