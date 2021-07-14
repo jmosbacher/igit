@@ -2,6 +2,7 @@ import base64
 import pickle
 import msgpack
 import dill
+import json
 import hashlib
 from abc import ABC, abstractmethod, abstractstaticmethod
 from pydantic import BaseModel
@@ -10,7 +11,9 @@ import pathlib
 import msgpack_numpy as m
 m.patch()
 
+
 SERIALIZERS = {}
+
 
 class DataCorruptionError(KeyError):
     pass
@@ -95,8 +98,26 @@ class MsgpackDillObjectSerializer(BaseObjectSerializer):
             return dill.loads(data)
 
 
+class JsonDillObjectSerializer(BaseObjectSerializer):
+    NAME = "json-dill"
+
+    @staticmethod
+    def serialize(obj):
+        try:
+            return json.dumps(obj)
+        except:
+            return dill.dumps(obj)
+    
+    @staticmethod
+    def deserialize(data):
+        try:
+            return json.loads(data)
+        except:
+            return dill.loads(data)
+
+
 SERIALIZERS["pickle"] = PickleObjectSerializer
 SERIALIZERS["dill"] = DillObjectSerializer
 SERIALIZERS["msgpack"] = MsgpackObjectSerializer
 SERIALIZERS["msgpack-dill"] = MsgpackDillObjectSerializer
-
+SERIALIZERS["json-dill"] = JsonDillObjectSerializer

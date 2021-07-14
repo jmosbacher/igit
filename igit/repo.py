@@ -188,6 +188,7 @@ class Repo:
 
     def serve(self):
         import uvicorn
+        import igit
         app = igit.server.make_app(self.location)
         uvicorn.run(app, host="0.0.0.0", port=5000, log_level="info")
 

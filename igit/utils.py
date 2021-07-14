@@ -6,6 +6,7 @@ from collections import Counter
 from intervaltree import Interval
 from itertools import cycle, islice
 from cryptography.fernet import Fernet
+from copy import copy
 import random
 
 def dict_to_treelib(d, parent="", tree=None, show_value=True, max_tag_len=50, include_trees=False):

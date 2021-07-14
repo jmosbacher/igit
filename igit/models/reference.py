@@ -19,7 +19,7 @@ class Reference(BaseObject):
         
 class ObjectRef(Reference):
     key: str
-    otype: ClassVar
+    otype: ClassVar = 'object'
     size: int = -1
 
     def walk(self, store, objects=True):

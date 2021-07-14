@@ -33,6 +33,9 @@ def hashablize(obj):
     """Convert a container hierarchy into one that can be hashed.
     See http://stackoverflow.com/questions/985294
     """
+    if hasattr(obj, "_igit_hash_") and callable(obj._igit_hash_):
+        return obj._igit_hash_()
+
     try:
         hash(obj)
     except TypeError:
@@ -51,6 +54,8 @@ def sha1_hash(data):
     return hashlib.sha1(data).hexdigest()
 
 def container_hash(obj):
+    if hasattr(obj, "_igit_hash_") and callable(obj._igit_hash_):
+        return obj._igit_hash_()
     try:
         hashable = hashablize(obj)
         data = json.dumps(hashable, cls=NumpyJSONEncoder).encode()
