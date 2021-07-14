@@ -1,15 +1,16 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+
 import pathlib
 
-app = FastAPI()
+
 
 TEMPLATE_DIR = pathlib.Path(__file__).parent.parent / "server_templates"
 
-
 def make_app(path, prefix="repos"):
+    from fastapi import FastAPI, Request
+    from fastapi.responses import HTMLResponse
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.templating import Jinja2Templates
+    
     if not isinstance(path, pathlib.Path):
         path = pathlib.Path(path)
     path = path.expanduser()

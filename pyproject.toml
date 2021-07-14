@@ -1,6 +1,6 @@
 [tool]
 [tool.poetry]
-name = "igit"
+name = "interval-git"
 version = "0.1.0"
 homepage = "https://github.com/jmosbacher/igit"
 description = "Top-level package for igit."

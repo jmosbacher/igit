@@ -23,7 +23,7 @@ if os.path.exists(readme_path):
 
 setup(
     long_description=readme,
-    name='igit',
+    name='interval-git',
     version='0.1.0',
     description='Top-level package for igit.',
     python_requires='>=3.7',
