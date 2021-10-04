@@ -1,11 +1,32 @@
+from collections import Counter
 from .models import Commit
 from .diffs import Diff
+from .refs import CommitRef
+from .utils import roundrobin
+
+
+def find_common_ancestor(repo, *branches):
+    refs = []
+    for branch in branches:
+        if isinstance(branch, CommitRef):
+            ref = branch
+        elif isinstance(branch, str):
+            if branch in repo.refs.heads:
+                ref = repo.refs.heads[branch]
+            else:
+                ref = repo.get_ref(branch)
+        refs.append(ref)
+
+    keys = Counter()
+    for cref in roundrobin(*[r.walk_parents(repo.objects) for r in refs]):
+        keys[cref.key] += 1
+        if keys[cref.key] == len(refs):
+            return cref
 
 class MergeStrategy:
     source: Commit
     target: Commit
     
-
     def apply(self, db):
         raise NotImplementedError
 

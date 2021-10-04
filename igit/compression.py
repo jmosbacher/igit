@@ -12,4 +12,4 @@ class NoOpCompressor:
         return data
 
 COMPRESSORS["noop"] = NoOpCompressor
-COMPRESSORS["zlib"] = zlib 
+COMPRESSORS["zlib"] = zlib
