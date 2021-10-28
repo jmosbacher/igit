@@ -31,10 +31,9 @@ filename    interval
 tree/folder interval-tree
 =========== =============
 
-
-Git is great for source code
+Motivation
 ----------------------------
-Git is not so great for the objects the code creates and the configuration parameters the code consumes.
+Git is great for source code (a collection of text files), it is not so great for the objects the code creates and the configuration parameters the code consumes.
   
 **The objects the code creates (usually serialized and saved to binary files)**
 Git tracks hierchies of folders and text content. Technically it can track binary data but it has no way of identifying which part of the object the binary file represents has changed and which is the same so it will save the entire file for even the smallest change, this defeats the purpose of the git object store and the repository quickly becomes massive.

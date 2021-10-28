@@ -5,7 +5,18 @@ from collections.abc import Mapping, Iterable
 import numpy as np
 from .models import Commit
 # from .trees import BaseTree
-from .utils import equal
+from .utils import equal, Dispatch
+
+from tokenize import tokenize
+
+diff_object = Dispatch()
+
+
+def diff_dict(old, new):
+    inserted = {k:v for k,v in new.items() if k not in old}
+    deleted = {k:v for k,v in old.items() if k not in new}
+    changed = {}
+
 
 class Patch(BaseModel):
     new: Any
@@ -45,8 +56,30 @@ class CommitDiff(Diff):
     new: Commit
     diff: Diff
 
+class Hunk(BaseModel):
+    pass
 
+class IntHunk(Hunk):
+    diff: int
 
+class FloatHunk(Hunk):
+    diff: float
+
+class DictHunk(Hunk):
+    inserted: dict
+    removed: list
+    replaced: dict
+
+class ListHunk(Hunk):
+    inserted: list
+    removed: list
+
+# class ArrayHunk(Hunk):
+#     diff: np.ndarray
+
+# class ObjectHunk(Hunk):
+#     old: object
+#     new: object
 
 def has_diffs(store, t1, t2):
     t1 = t1.to_merkle_tree(store)
@@ -73,6 +106,7 @@ def first_diff(t1, t2):
             return None,k
 
 def diff(l,r, equal):
+    from igit.trees import BaseTree 
     if not isinstance(l, type(r)):
         return Edit(old=l, new=r)
     if isinstance(l, BaseTree):

@@ -1,8 +1,15 @@
+import os
 import sys
 import time
+import fsspec
+import pathlib
+
 from datetime import datetime
 from collections.abc import Mapping
 from collections import Counter
+
+from igit.storage import object_store
+
 
 # from .object_store import ObjectStore
 from .models import ObjectRef, Commit, Tag, AnnotatedTag, User, CommitRef
@@ -10,8 +17,21 @@ from .refs import Refs
 from .trees import BaseTree, collect_intervals
 from .diffs import Diff, has_diffs
 from .config import Config
-from .storage import IGitObjectStore
 from .utils import roundrobin
+
+# from .object_store import ObjectStore
+from .refs import Refs
+from .trees import collect_intervals, BaseTree, LabelTree
+from .models import ObjectRef, CommitRef, TreeRef, RepoIndex, User
+# from .igit import IGit
+from .storage import SubfolderMapper, IGitObjectStore, ObjectStorage, BinaryStorage
+from .utils import ls
+from .visualizations import echarts_graph, get_pipeline_dag
+from .config import Config
+from .encryption import ENCRYPTORS
+from .constants import CONFIG_NAME
+from tokenize import tokenize
+from igit import storage
 
 class CommitError(RuntimeError):
     pass
@@ -36,7 +56,7 @@ def get_object_ref(key, otype, size=-1):
             return class_(key=key, size=size)
     raise KeyError(otype)
 
-class IGit:
+class IRepo:
     config: Config
 #     description: str
 #     hooks: dict
@@ -44,31 +64,97 @@ class IGit:
     objects: IGitObjectStore
     refs: Refs
     index: ObjectRef = None
-    working_tree: BaseTree
 
-    def __init__(self, working_tree, config, index, objects, refs):
-        if isinstance(working_tree, Mapping):
-            working_tree = BaseTree.instance_from_dict(working_tree)
-        if working_tree is not None and not isinstance(working_tree, BaseTree):
-            raise TypeError("Working tree must be an instance of BaseTree")
-        self.working_tree = working_tree
+    def __init__(self, config, key=None, **kwargs):
+        if isinstance(config,  pathlib.Path):
+            config = str(config)
+        if isinstance(config, str):
+            config = os.path.join(config, CONFIG_NAME)
+            with fsspec.open(config, "rb") as f:
+                config = Config.parse_raw(f.read())
+        if not isinstance(config, Config):
+            raise TypeError("config must be a valid path or Config object")
+
+        repo = fsspec.get_mapper(config.root_path, **kwargs)
+        
+        encryptor_class = ENCRYPTORS.get(config.encryption, None)
+        if encryptor_class is not None and key is not None:
+            encryptor = encryptor_class(key)
+        else:
+            encryptor = None
+
+        igit_folder = SubfolderMapper(config.igit_path, repo)
+
+        objects_store = BinaryStorage(igit_folder, 
+                     compressor=config.compression,
+                     encryptor=encryptor)
+        objects = IGitObjectStore(d=objects_store,
+                                 serializer=config.serializer,)
+        refs = Refs(SubfolderMapper(config.refs_path, repo))
+
         self.config = config
-        self.index = index
+        self.index = ObjectStorage(SubfolderMapper('index', repo), serializer=config.serializer,)
         self.objects = objects
         self.refs = refs
+        self.fstore = repo
+
+    def __getitem__(self, name):
+        return self.INDEX_TREE[name]
+
+    def __setitem__(self, key, value):
+        self.add(**{key:value})
+
+    @classmethod
+    def init(cls, path, main_branch="master",
+             username=None, email=None, connection_kwargs={}, **kwargs):
+        if isinstance(path,  pathlib.Path):
+            path = "file://" + str(path)
+        if isinstance(path, str):
+            storage = fsspec.get_mapper(path)
+        elif isinstance(path, fsspec.mapping.FSMap):
+            storage = path
+        else:
+            raise TypeError("repo must be a valid fsspec path or FSMap")
         
+        if CONFIG_NAME in storage:
+            raise ValueError(f"igit repository already exists in path.")
+
+        kwargs = dict(kwargs)
+        
+        key = kwargs.pop("key", None)
+        user = User.get_user(username=username, email=email)
+        config = Config(HEAD=main_branch, main_branch=main_branch,
+                         user=user, root_path=path, **kwargs)
+        storage[CONFIG_NAME] = config.json(indent=3).encode()
+        
+        return cls(config, key=key, connection_kwargs=connection_kwargs)
+        
+
+    @classmethod
+    def clone(cls, source, target=None, branch="master", **kwargs):
+        if target is None:
+            target = "file://" + source.rpartition("/")[-1]
+        repo = cls.init(target, **kwargs)
+        source = cls(source)
+        head = source.refs.heads[branch]
+        for obj in head.walk(source.objects):
+            repo.objects.hash_object(obj)
+
+        repo.refs.heads[branch] = head
+        repo.config = source.config
+        repo.config.root_path = target
+        repo.config.HEAD = branch
+        repo.checkout(branch)
+        return repo
+
     @classmethod
     def clone(cls, url):
         pass
     
     @property
-    def bare(self):
-        return self.working_tree is None
-
-    @property
     def WORKING_TREE(self):
         if self.working_tree is None:
-            self.working_tree = BaseTree.instance_from_dict({})
+            raise TypeError('Bare repo has no working tree')
         return self.working_tree
 
     @property
@@ -79,7 +165,7 @@ class IGit:
             return self.refs.heads[self.config.HEAD]
         if self.config.HEAD in self.refs.tags:
             return self.refs.tags[self.config.HEAD]
-        return self.cat_object(self.config.HEAD, otype="commit")
+        return CommitRef(key=self.config.HEAD)
 
     @property
     def HEAD_TREE(self):
@@ -93,15 +179,16 @@ class IGit:
 
     @property
     def INDEX_TREE(self):
-        if self.index is None:
-            index = self.WORKING_TREE.__class__()
-        else:
-            index = self.INDEX.deref(self.objects)
-        return index
-
+        return LabelTree.from_paths_dict(self.index)
+    
     @property
     def detached(self):
         return self.config.HEAD not in self.refs.heads
+
+    @property
+    def dirty(self):
+        return False
+        return not (self.HEAD_TREE == self.INDEX_TREE)
 
     def status(self):
         pass
@@ -114,11 +201,7 @@ class IGit:
         else:
             raise KeyError(ref)
 
-    def hash_object(self, obj, otype="blob"):
-        if isinstance(obj, BaseTree):
-            return obj.hash_tree(self.objects)
-        if hasattr(obj, "otype"):
-            otype = obj.otype
+    def hash_object(self, obj):
         return self.objects.hash_object(obj)
 
     def update_index(self, *keys):
@@ -127,38 +210,28 @@ class IGit:
     def write_tree(self):
         pass
 
-    def add(self, *keys):
+    def add(self, **kwargs):
         index = self.INDEX_TREE
-        if not keys:
-            keys = self.WORKING_TREE.keys()
-        for key in keys:
-            obj = self.WORKING_TREE[key]
+        for k,obj in kwargs.items():
             if not self.objects.consistent_hash(obj):
-                raise ValueError(f"{key} of type {type(obj)} cannot be consistently hashed.")
-            index[key] = obj
-        for key in index.keys():
-            if key not in self.WORKING_TREE:
-                del self.WORKING_TREE[key]
-        self.index = index.hash_tree(self.objects)
-        return self.index
+                raise ValueError(f"{k} of type {type(obj)} cannot be consistently hashed.")
+            index[k] = obj
+        index.sync(self.index)
+        return index
 
     def rm(self, *keys):
         index = self.INDEX_TREE
-        if not keys:
-            keys = self.WORKING_TREE.keys()
-        for key in keys:
-            del index[key]
-        self.index = index.hash_tree(self.objects)
-        return self.index
+        for k in keys:
+            if k in index:
+                del index[k]
+        index.sync(self.index)
+        return index
 
-    def commit(self, message, author=None, commiter=None,):
-        if self.has_unstaged_changes:
-            raise CommitError("You have unstaged changes in your working tree.")
+    def commit(self, message, author=None, commiter=None):
         if author is None:
             author = self.config.user
         elif isinstance(author, dict):
             author = User(**author)
-
         if commiter is None:
             commiter = self.config.user
         elif isinstance(commiter, dict):
@@ -166,42 +239,43 @@ class IGit:
         parents = ()
         if self.HEAD is not None:
             parents = (self.HEAD, )
-        commit = Commit(parents=parents, tree=self.index, message=message,
+        tree = self.objects.hash_object(self.INDEX_TREE)
+        commit = Commit(parents=parents, tree=tree, message=message,
                         author=author, commiter=commiter, timestamp=int(time.time()))
-        cref = self.hash_object(commit, otype="commit")
+        cref = self.hash_object(commit)
         self.refs.heads[self.config.HEAD] = cref
         return cref
     
-    @property
-    def has_unstaged_changes(self):
-        return self.INDEX_TREE != self.WORKING_TREE
-
     def checkout(self, key, branch=False):
-        if self.has_unstaged_changes:
-            raise CommitError("You have unstaged changes in your working tree.")
+        if self.dirty:
+            raise CommitError("You have uncomitted changes in your staging area.")
         if branch:
             self.branch(key)
         if key in self.refs.heads:
             ref = self.refs.heads[key]
         elif key in self.refs.tags:
-            ref = self.refs.tags[key]    
-        else:
+            ref = self.refs.tags[key]
+        elif isinstance(key, CommitRef):
             ref = key
+        elif isinstance(key, str):
+            ref = CommitRef(key=key)
+        else:
+            raise TypeError(f'cannot locate branch or commit referenced by {key}')
         commit = ref.deref(self.objects)
         tree = commit.tree.deref(self.objects)
-        self.working_tree = tree
-        self.index = commit.tree
         self.config.HEAD = key
-        return key
+        return tree
 
     def branch(self, name=None):
         if name is None:
             return self.config.HEAD
         if name in self.refs.heads:
-            raise ValueError("a branch with this name already exists.")
+            raise ValueError("A branch with this name already exists.")
+        if self.HEAD is None:
+            raise CommitError('Cant branch from non-existing branch.')
         ref = self.HEAD
         self.refs.heads[name] = ref
-        return ref
+        return self.checkout(name)
 
     def tag(self, name, annotated=False, tagger=None, message=""):
         cref = self.HEAD
@@ -215,7 +289,7 @@ class IGit:
         return tag
 
     def merge(self, other, message, commiter=None):
-        if self.has_unstaged_changes:
+        if self.dirty:
             raise MergeError("You have unstaged changes in your working tree.")
         common = self.find_common_ancestor(self.HEAD, other).deref_tree(self.objects)
         ours = self.get_branch_tree(self.HEAD)
@@ -236,7 +310,7 @@ class IGit:
 
         commit = Commit(parents=parents, tree=merged_ref, message=message,
                          commiter=commiter, timestamp=int(time.time()))
-        cref = self.hash_object(commit, otype="commit")
+        cref = self.hash_object(commit)
         self.refs.heads[self.config.HEAD] = cref
         return cref
     
@@ -316,4 +390,41 @@ class IGit:
             keys[cref.key] += 1
             if keys[cref.key] == len(refs):
                 return cref
+
+    def serve(self):
+        import uvicorn
+        import igit
+        app = igit.server.make_app(self.location)
+        uvicorn.run(app, host="0.0.0.0", port=5000, log_level="info")
+
+    def save(self):
+        # self.ostore["working_tree"] = self.WORKING_TREE
+        self.fstore[CONFIG_NAME] = self.config.json(indent=3).encode()
+      
+    def load(self):
+        # tree = self.ostore.get("working_tree", None)
+        # if tree is not None:
+            # self.working_tree = tree
+        self.config = Config.parse_raw(self.fstore[CONFIG_NAME])
+
+    def browse_history(self):
+        if self.HEAD is None:
+            import panel as pn
+            return pn.Column()
+        pipeline, dag = get_pipeline_dag(self.HEAD, self.objects)
+        pipeline.define_graph(dag)
+        return pipeline
     
+
+    def browse_files(self):
+        from fsspec.gui import FileSelector
+        sel = FileSelector()
+
+        protocol = self.fstore.fs.protocol
+        if isinstance(protocol, tuple):
+            protocol = protocol[-1]
+        sel.protocol.value = sel.prev_protocol = protocol
+        sel._fs = self.fstore.fs
+        sel.url.value = self.fstore.root
+        sel.go_clicked()
+        return sel

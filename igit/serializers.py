@@ -30,6 +30,11 @@ class ObjectPacket(BaseModel):
 class BaseObjectSerializer(ABC):
     NAME: str
     key: bytes
+    postfix: str = ''
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        SERIALIZERS[cls.NAME] = cls
 
     @abstractstaticmethod
     def serialize(obj):
@@ -46,8 +51,20 @@ class BaseObjectSerializer(ABC):
         mapper = Func(cls.serialize, cls.deserialize, fs_mapper)
         return mapper
 
+class JsonObjectSerializer(BaseObjectSerializer):
+    NAME = "json"
+
+    @staticmethod
+    def serialize(obj):
+        return json.dumps(obj).encode()
+   
+    @staticmethod
+    def deserialize(data):
+        return json.loads(data)
+        
 class PickleObjectSerializer(BaseObjectSerializer):
     NAME = "pickle"
+    postfix: str = '.pkl'
 
     @staticmethod
     def serialize(obj):
@@ -60,6 +77,7 @@ class PickleObjectSerializer(BaseObjectSerializer):
 
 class DillObjectSerializer(BaseObjectSerializer):
     NAME = "dill"
+    postfix: str = '.dill'
 
     @staticmethod
     def serialize(obj):
@@ -71,6 +89,7 @@ class DillObjectSerializer(BaseObjectSerializer):
 
 class MsgpackObjectSerializer(BaseObjectSerializer):
     NAME = "msgpack"
+    postfix: str = '.msg'
 
     @staticmethod
     def serialize(obj):
@@ -104,7 +123,7 @@ class JsonDillObjectSerializer(BaseObjectSerializer):
     @staticmethod
     def serialize(obj):
         try:
-            return json.dumps(obj)
+            return json.dumps(obj).encode()
         except:
             return dill.dumps(obj)
     
@@ -114,10 +133,3 @@ class JsonDillObjectSerializer(BaseObjectSerializer):
             return json.loads(data)
         except:
             return dill.loads(data)
-
-
-SERIALIZERS["pickle"] = PickleObjectSerializer
-SERIALIZERS["dill"] = DillObjectSerializer
-SERIALIZERS["msgpack"] = MsgpackObjectSerializer
-SERIALIZERS["msgpack-dill"] = MsgpackDillObjectSerializer
-SERIALIZERS["json-dill"] = JsonDillObjectSerializer
