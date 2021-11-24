@@ -25,6 +25,9 @@ class GFSMapping(MutableMapping):
             self._fs = gridfs.GridFS(db)
         return self._fs
 
+    def __reduce__(self):
+        return GFSMapping, (self.db,), self.connection_kwargs
+
     def __getitem__(self, key):
         if self.fs.exists({"filename": key}):
             return self.fs.find_one({"filename": key}).read()
@@ -58,9 +61,3 @@ class GFSMapping(MutableMapping):
     def __len__(self):
         return len(self.keys())
     
-    def __getstate__(self):
-        return {"db": self.db, "connection_kwargs": self.connection_kwargs}
-
-    def __setstate__(self, d):
-        self.db = d["db"]
-        self.connection_kwargs = d["connection_kwargs"]

@@ -7,5 +7,5 @@ class BaseObject(BaseModel):
     def __hash__(self):
         return hash(self.json())
 
-    def _igit_hashable_(self):
+    def __dask_tokenize__(self):
         return (self.otype, self.dict())

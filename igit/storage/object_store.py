@@ -9,6 +9,7 @@ from zict.common import ZictBase, close
 from pymongo import MongoClient
 from collections.abc import MutableMapping
 
+
 from .common import BinaryStorage, IGitFunc, SubfolderMapper, DataCorruptionError
 from ..models import TreeRef, BlobRef, ObjectRef, BaseObject, ObjectPacket
 from ..serializers import SERIALIZERS
@@ -16,19 +17,21 @@ from ..trees import BaseTree
 from ..hashing import HASH_FUNCTIONS
 from ..compression import COMPRESSORS
 from ..encryption import ENCRYPTORS
-from ..constants import HASH_HOOK_NAME
+from ..tokenize import tokenize
 
 
 
 class ObjectStorage(ZictBase):
     d: ty.Mapping
     serializer: ty.Any
+    suffix: str = ''
 
-    def __init__(self,  d: BinaryStorage, serializer=None):
+    def __init__(self,  d: BinaryStorage, serializer=None, suffix=''):
         self.d = d
         if isinstance(serializer, str):
             serializer = SERIALIZERS.get(serializer, None)
         self.serializer = serializer
+        self.suffix = suffix
 
     @property
     def fs(self):
@@ -84,24 +87,29 @@ class ObjectStorage(ZictBase):
         return self[key]
 
     def keys(self):
-        return list(self.d.keys())
+        return [k.strip(self.suffix) for k in self.d.keys()]
 
     def __getitem__(self, key):
+        key = key + self.suffix
         return self.deserialize(self.d[key])
 
     def __setitem__(self, key, value):
+        key = key + self.suffix
         self.d[key] = self.serialize(value)
 
     def __delitem__(self, key):
+        key = key + self.suffix
         del self.d[key]
 
     def __iter__(self):
-        yield from self.d.keys()
+        for key in self.d.keys():
+            yield key.strip(self.suffix)
 
     def __len__(self):
         return len(self.keys())
 
     def __contains__(self, key):
+        key = key + self.suffix
         return key in self.d.keys()
         
 
@@ -139,21 +147,13 @@ class IGitObjectStore(ObjectStorage):
     hash_func: ty.Callable
 
     def __init__(self, d: BinaryStorage, serializer=None, 
-                 hash_func="sha1", verify=True):
+                hash_func=None, verify=True,):
         d = IGitObjectStoreMapper(d)
         super().__init__(d, serializer=serializer)
         self.verify = verify
-        if isinstance(hash_func, str):
-            hash_func = HASH_FUNCTIONS.get(hash_func, None)
-        if hash_func is None:
-            hash_func = lambda data: str(hash(data))
-        self.hash_func = hash_func
+        self.hash_func = HASH_FUNCTIONS.get(hash_func, tokenize) 
 
     def hash(self, obj)->str:
-        
-        hook = getattr(obj, HASH_HOOK_NAME, None)
-        if hook is not None:
-            obj = hook()
         return self.hash_func(obj)
     
     def get_ref(self, key, obj):
@@ -175,7 +175,11 @@ class IGitObjectStore(ObjectStorage):
 
     def hash_object(self, obj, save=True, as_ref=True):
         if isinstance(obj, BaseTree):
-            obj = obj.to_merkle_tree(self)
+            new_obj = obj.__class__()
+            for k,v in obj.items():
+                new_obj[k] = self.hash_object(v, save=save)
+            obj = new_obj
+            # obj = obj.to_merkle_tree(self)
         key = self.hash(obj)
         if save:
             self.d[key] = self.serialize(obj)
@@ -186,18 +190,20 @@ class IGitObjectStore(ObjectStorage):
     def cat_object(self, key, deref=True, recursive=True):
         data = self.d[key]
         obj = self.deserialize(data)
-        # if deref and hasattr(obj, 'deref'):
-        #     obj = obj.deref(self, recursive=recursive)
+        if deref and hasattr(obj, 'deref'):
+            obj = obj.deref(self, recursive=recursive)
         if self.verify:
-            if self.hash(obj) != key:
-                raise DataCorruptionError("Looks like data has been corrupted or\
-                     a different serializer was used.")
+            key2 = self.hash_object(obj, save=False, as_ref=False)
+            if key2 != key:
+                
+                raise DataCorruptionError(f"Looks like data has been corrupted or\
+                     a different serializer was used. key: {key}, hash: {key2}")
         return obj
     
     def get(self, key, default=None):
         if key not in self.d:
             return default
-        return self.cat_object(key)
+        return self[key]
 
     def fuzzy_get(self, key):
         if key in self.d:
@@ -212,7 +218,7 @@ class IGitObjectStore(ObjectStorage):
 
     def consistent_hash(self, obj):
         key1 = self.hash_object(obj, as_ref=False)
-        key2 = self.hash(self.cat_object(key1))
+        key2 = self.hash_object(self.cat_object(key1), as_ref=False)
         return key1 == key2
 
 def IGitModelStorage(model, d):

@@ -1,5 +1,5 @@
 
 from .base import BaseTree
-from .labels import LabelGroup
-from .intervals import IntervalGroup, collect_intervals
-from .configs import ConfigGroup
+from .labels import LabelTree
+from .intervals import IntIntervalTree, TimeIntervalTree, collect_intervals
+from .configs import ConfigTree

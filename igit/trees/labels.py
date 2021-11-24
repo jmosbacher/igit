@@ -1,12 +1,11 @@
-
+import fnmatch
 
 from .base import BaseTree
 from ..utils import equal
 from ..diffs import Edit, Insertion, Deletion, Diff
 
 
-@BaseTree.register_tree_class
-class LabelGroup(BaseTree):
+class LabelTree(BaseTree):
     
     def __init__(self, mapping=None, **kwargs):
         if mapping is None:
@@ -23,12 +22,16 @@ class LabelGroup(BaseTree):
 
     def to_dict(self):
         return dict(self._mapping)
-       
+    
+    @classmethod
     def from_label_dict(cls, d):
         return cls(d)
     
     def to_label_dict(self)->dict:
         return self.to_dict()
+
+    def filter_keys(self, pattern):
+        return fnmatch.filter(self.keys(), pattern)
 
     def keys(self):
         return self._mapping.keys()
@@ -41,28 +44,31 @@ class LabelGroup(BaseTree):
             return Edit(old=self, new=other)
         if self == other:
             return self.__class__()
-        diffs = self.__class__()
+        hunks = self.__class__()
         for k,v in self.items():
             if k not in other:
-                diffs[k] = Deletion(old=v)
+                hunks[k] = Deletion(old=v)
                 continue
             if not equal(v, other[k]):
                 if isinstance(v, BaseTree) and isinstance(other[k], BaseTree):
                     d = v.diff(other[k])
                     if len(d):
-                        diffs[k] = d                    
+                        hunks[k] = d                    
                 else:
-                    diffs[k] = Edit(old=v, new=other[k])
+                    hunks[k] = Edit(old=v, new=other[k])
         for k,v in other.items():
             if k not in self:
-                diffs[k] = Insertion(new=v)
-        return diffs
+                hunks[k] = Insertion(new=v)
+        return hunks
 
     def __getattr__(self, key):
         try:
             return self.__getattribute__(key)
-        except:
-            return self._mapping.get(key)
+        except Exception as e:
+            if key in self._mapping:
+                return self._mapping.get(key)
+            else:
+                raise e
 
     def __getitem__(self, key):
         if key in self._mapping:

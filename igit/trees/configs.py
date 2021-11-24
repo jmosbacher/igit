@@ -1,35 +1,49 @@
 
 from collections import defaultdict
 
+from intervaltree.intervaltree import IntervalTree
+
 from .base import BaseTree
-from .labels import LabelGroup
-from .intervals import IntervalGroup, Interval, IntervalTree
+from .labels import LabelTree
+from .intervals import BaseIntervalTree, Interval
 from ..interval_utils import interval_dict_to_df
 
 
-@BaseTree.register_tree_class
-class ConfigGroup(LabelGroup):
+class ConfigTree(LabelTree):
 
     def __setitem__(self, key, value):
-        if isinstance(value, BaseTree) and not isinstance(value, IntervalGroup):
-            raise TypeError("Config subgroups can only be of type IntervalGroup")
+        if isinstance(value, BaseTree) and not isinstance(value, BaseIntervalTree):
+            raise TypeError("Config subtrees can only be of type IntervalTree")
         super().__setitem__(key, value)
 
+    @property
+    def start(self):
+        return min([t.start for t in self.values() if len(t)])
+
+    @property
+    def end(self):
+        return max([t.end for t in self.values() if len(t)])
+
     @staticmethod
-    def mergable(name,ivs,begin,end):
-        return [Interval(max(iv.begin, begin), min(iv.end, end), (name, iv.data)) for iv in ivs]
+    def mergable(name,ivs,start,end):
+        return [Interval(max(iv.begin, start), min(iv.end, end), (name, iv.data)) for iv in ivs]
     
-    def boundaries(self, begin, end, *keys):
+    def boundaries(self, start=None, end=None, *keys):
+        if start is None:
+            start = self.start
+        if end is None:
+            end = self.end
         if not keys:
             keys = self._mapping.keys()
         merged = []
         for k in keys:
             v = self._mapping[k]
-            if isinstance(v, IntervalGroup):
-                ivs = v.overlap(begin, end)
+            if isinstance(v, BaseIntervalTree):
+                ivs = v.overlap(start, end)
             else:
-                ivs = [Interval(begin, end, v)]
-            merged.extend(self.mergable(k, ivs, begin, end))
+                ivs = [Interval(start, end, v)]
+            merged.extend(self.mergable(k, ivs, start, end))
+
         tree = IntervalTree(merged)
         tree.split_overlaps()
         cfg = {k:[] for k in keys}
@@ -38,22 +52,34 @@ class ConfigGroup(LabelGroup):
         cfg = {k: sorted(v) for k,v in cfg.items()}
         return cfg
 
-    def boundaries_df(self, begin, end, *keys):
-        return interval_dict_to_df(self.boundaries(begin, end, *keys))
+    def boundaries_df(self, start=None, end=None, *keys):
+        if start is None:
+            start = self.start
+        if end is None:
+            end = self.end
+        return interval_dict_to_df(self.boundaries(start, end, *keys))
 
-    def split_on_boundaries(self, begin, end, *keys):
+    def split_on_boundaries(self, start=None, end=None, *keys):
+        if start is None:
+            start = self.start
+        if end is None:
+            end = self.end
         config = defaultdict(dict)
-        cfg = self.boundaries(begin, end, *keys)
+        cfg = self.boundaries(start, end, *keys)
         for k, ivs in cfg.items():
             for iv in ivs:
                 config[(iv.begin, iv.end,)][k] = iv.data
         return dict(config)
 
-    def show_boundaries(self, begin, end, *keys, show_labels=True,  **kwargs):
+    def show_boundaries(self, start=None, end=None, *keys, show_labels=True,  **kwargs):
         import holoviews as hv
         import panel as pn
         pn.extension()
-        df = self.boundaries_df(begin, end, *keys)
+        if start is None:
+            start = self.start
+        if end is None:
+            end = self.end
+        df = self.boundaries_df(start, end, *keys)
         df["value_str"] = df.value.apply(lambda x: str(x))
         
 
@@ -70,7 +96,7 @@ class ConfigGroup(LabelGroup):
             range_view = range_view*labels
         range_view = range_view*vline
 
-        range_selection = hv.Segments((begin-0.1*(end-begin), 'view', end+0.1*(end-begin), 'view', 'full range'), ["begin","parameter","end", "parameter"], )
+        range_selection = hv.Segments((start-0.1*(end-start), 'view', end+0.1*(end-start), 'view', 'full range'), ["start","parameter","end", "parameter"], )
         range_selection.opts(height=100, yaxis=None, default_tools=[], responsive=True,)
 
         hv.plotting.links.RangeToolLink(range_selection, segments)

@@ -1,16 +1,18 @@
 
 
+import datetime
 from intervaltree import IntervalTree, Interval
 from collections.abc import Mapping, MutableMapping, Iterable
+import pandas as pd
+from numbers import Number
 
 from .base import BaseTree
-from .labels import LabelGroup
+from .labels import LabelTree
 from ..utils import equal
 from ..diffs import Edit, Insertion, Deletion, Diff
 
 
-@BaseTree.register_tree_class
-class IntervalGroup(BaseTree):
+class BaseIntervalTree(BaseTree):
     _tree: IntervalTree
     
     @staticmethod
@@ -20,7 +22,7 @@ class IntervalGroup(BaseTree):
                 return False
             if not len(key) == 2:
                 return False
-            if not all([isinstance(x, int) for x in key]):
+            if not all([isinstance(x, (int, datetime.datetime)) for x in key]):
                 return False
         return True 
 
@@ -31,20 +33,30 @@ class IntervalGroup(BaseTree):
 
     @classmethod
     def from_label_dict(cls, d):
-        ivs = [Interval(*map(int, k.split("-")), v) for k,v in d.items()]
+        ivs = [Interval(*cls.label_to_key(k), v) for k,v in d.items()]
         return cls(IntervalTree(ivs))
     
     def add_group(self, name, group):
         self[name] = group
+    
+    @staticmethod
+    def filter_keys(pattern):
+        raise NotImplementedError
+    
+    @staticmethod
+    def key_to_label(key):
+        raise NotImplementedError
 
-    def key_to_label(self, key):
-        return f"{key[0]}-{key[1]}"
-
-    def label_to_key(self, label):
-        return tuple(map(int, label.split("-")))
+    @staticmethod
+    def label_to_key(label):
+        raise NotImplementedError
+    
+    @staticmethod
+    def _validate_itype(begin, end):
+        raise NotImplementedError
 
     def to_label_dict(self):
-        return {f"{iv.begin}-{iv.end}": iv.data for iv in sorted(self._tree)}
+        return {self.key_to_label((iv.begin,iv.end)): iv.data for iv in sorted(self._tree)}
         
     def to_dict(self):
         return {(iv.begin,iv.end): iv.data for iv in sorted(self._tree)}
@@ -52,14 +64,18 @@ class IntervalGroup(BaseTree):
     def __init__(self, tree=None, *args, **kwargs):
         if tree is None:
             tree = IntervalTree()
-        if not isinstance(tree, IntervalTree):
+        elif isinstance(tree, IntervalTree):
+            tree = tree
+        elif isinstance(tree, BaseIntervalTree):
+            tree = tree._tree
+        else:
             raise TypeError("tree must be an instance of IntervalTree.")
         self._tree = tree
 
     def __getitem__(self, key):
         if isinstance(key, str):
             key = self.label_to_key(key)
-        if isinstance(key, int):
+        if isinstance(key, Number):
             return self.value(key)
         elif isinstance(key, tuple) and len(key)==2:
             return self.overlap_content(*key)
@@ -72,6 +88,8 @@ class IntervalGroup(BaseTree):
                 return self.overlap(key.start, key.stop)
             else:
                 return self.values_at(range(start, stop, key.step))
+        raise KeyError('No overlapping data found.')
+
     @property
     def start(self):
         return self._tree.begin()
@@ -153,6 +171,7 @@ class IntervalGroup(BaseTree):
         self._tree = IntervalTree(ivs)
 
     def overlap(self, begin, end):
+        begin, end = self._validate_itype(begin, end)
         hits = sorted(self._tree.overlap(begin, end))
         return [Interval(max(iv.begin, begin), min(iv.end, end), iv.data)
                     for iv in hits]
@@ -164,15 +183,20 @@ class IntervalGroup(BaseTree):
         return [hit.data for hit in hits]
 
     def value(self, index):
+        index, = self._validate_itype(index)
         hits = sorted(self._tree.at(index))
+        if not hits:
+            raise KeyError(f'No data overlapps {index}')
         if len(hits)==1:
             return hits[0].data
         return hits
         
     def values_at(self, indices):
+        indices = self._validate_itype(*indices)
         return [self.value(i) for i in indices]
 
     def set_interval(self, begin, end, value):
+        begin, end = self._validate_itype(begin, end)
         self._tree.chop(begin, end)
         self._tree.addi(begin, end, value)
 
@@ -227,9 +251,61 @@ class IntervalGroup(BaseTree):
                 diffs[k] = Edit(old=self[k], new=other[k])
         return diffs
 
+class IntIntervalTree(BaseIntervalTree):
+
+    def filter_keys(self, pattern):
+        if isinstance(pattern, tuple):
+            begin, end = pattern
+        elif isinstance(pattern, slice):
+            begin, end = pattern.start, pattern.stop
+        else:
+            raise TypeError('pattern must be an interval defined by tuple or slice.')
+        return [(iv.begin,iv.end) for iv in self.overlap(begin, end)]
+
+    @staticmethod
+    def key_to_label(key):
+        return f"{key[0]}-{key[1]}"
+
+    @staticmethod
+    def label_to_key(label):
+        return tuple(map(int, label.split("-")))
+
+    def to_label_dict(self):
+        return {f"{iv.begin}-{iv.end}": iv.data for iv in sorted(self._tree)}
+    
+    def _validate_itype(self, *args):
+        return tuple(int(arg) for arg in args)
+
+class TimeIntervalTree(BaseIntervalTree):
+    unit: str
+
+    def __init__(self, *args, unit='s', **kwargs):
+        self.unit = unit
+        super().__init__(*args, **kwargs)
+
+    def filter_keys(self, pattern):
+        if isinstance(pattern, tuple):
+            begin, end = pattern
+        elif isinstance(pattern, slice):
+            begin, end = pattern.start, pattern.stop
+        else:
+            raise TypeError('pattern must be an interval defined by tuple or slice.')
+        return [(iv.begin,iv.end) for iv in self.overlap(begin, end)]
+    
+    @staticmethod
+    def key_to_label(key):
+        return f"({key[0]})-({key[1]})"
+
+    @staticmethod
+    def label_to_key(label):
+        return tuple(map(pd.to_datetime, label.strip('()').split(")-(")))
+
+    def _validate_itype(self, *args):
+        return tuple(pd.to_datetime(arg, unit=self.unit) for arg in args)
+
 def collect_intervals(tree, parent=(), merge_names=True, join_char="_"):
     ivs = []
-    if isinstance(tree, IntervalGroup):
+    if isinstance(tree, BaseIntervalTree):
         for (begin,end), data in tree.items():
             if merge_names:
                 label = join_char.join(parent)
@@ -244,7 +320,7 @@ def collect_intervals(tree, parent=(), merge_names=True, join_char="_"):
                         "mid":(begin+end)/2 ,"end": end, "data": data}
             ivs.append(interval)
             
-    elif isinstance(tree, LabelGroup):
+    elif isinstance(tree, LabelTree):
         for k,v in tree.items():
             name = parent+(k,)
             if isinstance(v, BaseTree):

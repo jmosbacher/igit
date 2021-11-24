@@ -1,4 +1,4 @@
-from typing import ClassVar, List, Tuple, Sequence
+from typing import ClassVar, List, Tuple, Sequence, Optional
 from pydantic import BaseModel, Field
 from collections.abc import Iterable
 
@@ -48,7 +48,7 @@ class ObjectRef(Reference):
     
     @staticmethod
     def _deref(key, store):
-        obj = store.get(key)
+        obj = store.cat_object(key)
         return obj
 
     def deref(self, store, recursive=True):
@@ -61,7 +61,10 @@ class ObjectRef(Reference):
         return self.key
 
     def __hash__(self):
-        return hash(self.otype, self.key)
+        return hash(self.key)
+
+    def __dask_tokenize__(self):
+        return self.key
 
 class BlobRef(ObjectRef):
     otype: ClassVar = "blob"

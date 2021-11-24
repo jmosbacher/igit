@@ -5,10 +5,16 @@ import sys
 from abc import ABC, abstractmethod, abstractclassmethod, abstractstaticmethod
 from collections.abc import Mapping, MutableMapping, Iterable
 from collections import UserDict, defaultdict
+from pydoc import locate
+import fsspec
 
+from igit.tokenize import tokenize, normalize_token
 from ..models import ObjectRef #, BlobRef, TreeRef, Commit, Tag
-from ..utils import dict_to_treelib, equal
+from ..utils import dict_to_treelib, equal, class_fullname
 from ..diffs import Edit, Patch
+from ..constants import TREECLASS_KEY
+
+
 
 def camel_to_snake(name):
   name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
@@ -21,39 +27,33 @@ class KeyTypeError(TypeError):
 class BaseTree(MutableMapping):
     TREE_CLASSES = []
 
-    @classmethod
-    def register_tree_class(cls, class_):
-        cls.TREE_CLASSES.append(class_)
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.TREE_CLASSES.append(cls)
 
-        method_name = "new_"+camel_to_snake(class_.__name__)
+        method_name = "new_"+camel_to_snake(cls.__name__)
         def method(self, name,*args, **kwargs):
-            self.add_group(name, class_(*args, **kwargs))
+            self.add_tree(name, cls(*args, **kwargs))
             return self[name]
 
         method.__name__ = method_name
-        setattr(cls, method_name, method)
-        return class_
+        setattr(BaseTree, method_name, method)
     
     @classmethod
     def instance_from_dict(cls, d):
         if not isinstance(d, Mapping):
             raise TypeError(f"{d} is not a Mapping")
-        keys = d.keys()
-        for class_ in cls.TREE_CLASSES:
-            if class_.compatible_keys(keys):
-                obj = class_.from_dict(d)
-                break
-        else:
-            raise TypeError(f"No Tree type found that supprts {d}")
-        return obj
-
-    def add_group(self, name, group):
+        if TREECLASS_KEY not in d:
+            raise ValueError('Mapping is not a valid tree representation.')
+        cls = locate(d[TREECLASS_KEY])
+        return cls.from_dict(d)
+     
+    def add_tree(self, name, tree):
         if name in self:
             raise KeyError(f"A value with the key {name} alread exists.")
-        self[name] = group
+        self[name] = tree
 
     def to_nested_dict(self, sort=False):
-        
         items = self.to_dict().items()
         if sort:
             items = sorted(items)
@@ -72,6 +72,61 @@ class BaseTree(MutableMapping):
                 d[k] = v.to_nested_label_dict()
         return d
 
+    def to_paths_dict(self, sep='/')->dict:
+        d = self.to_label_dict()
+        paths = {}
+        for k,v in d.items():
+            if isinstance(v, BaseTree):
+                for k2,v2 in v.to_paths_dict().items():
+                    paths[k+sep+k2] = v2
+            else:
+                paths[k] = v
+        paths[TREECLASS_KEY] = class_fullname(self)
+        return paths
+    
+    def sync(self, m: MutableMapping, sep='/'):
+        
+        if hasattr(m, 'fs'):
+            sep = m.fs.sep
+        paths = self.to_paths_dict(sep=sep)
+        for k in m.keys():
+            if k not in paths:
+                del m[k]
+        for k,v in paths.items():
+            m[k] = v
+        return m
+
+    def persist(self, path, serializer="msgpack-dill"):
+        from igit.storage import ObjectStorage
+
+        m = fsspec.get_mapper(path)
+        store = ObjectStorage(m, serializer=serializer,)
+        return self.sync(store)
+
+    @classmethod    
+    def from_paths_dict(cls, d, sep='/'):
+        if TREECLASS_KEY in d:
+            cls = locate(d[TREECLASS_KEY])
+        tree = defaultdict(dict)
+        for k in d.keys():
+            if k.startswith('.'):
+                continue
+            label,_, rest = k.partition(sep)
+            if rest:
+                tree[label][rest] = d[k]
+            else:
+                tree[k] = d[k]
+        tree = dict(tree)
+        new_tree = {}
+        for k,v in tree.items():
+            if k.startswith('.'):
+                continue
+            if isinstance(v, dict) and TREECLASS_KEY in v:
+                new_tree[k] = BaseTree.from_paths_dict(v, sep=sep)
+            else:
+                new_tree[k] = v
+        return cls.from_label_dict(new_tree)
+
     def to_echarts_series(self, name)->dict:
         d = self.to_label_dict()
         children = []
@@ -87,7 +142,6 @@ class BaseTree(MutableMapping):
         from ..visualizations import echarts_graph
         import panel as pn
         pn.extension('echarts')
-
         echart = echarts_graph(self.to_echarts_series("root"), label)
         echart_pane = pn.pane.ECharts(echart, width=700, height=400, sizing_mode="stretch_both")
         return echart_pane
@@ -112,15 +166,12 @@ class BaseTree(MutableMapping):
         return self._hash_object(store, obj, otype)
 
     def to_merkle_tree(self, store):
-        d = {}
+        tree = self.__class__()
         for k,v in sorted(self.items()):
-            if isinstance(v, ObjectRef):
-                d[k] = v
-            elif isinstance(v, BaseTree):
-                d[k] = v.to_merkle_tree(store)
-            else:
-                d[k] = store.hash_object(v)
-        return self.__class__.from_dict(d)
+            if isinstance(v, BaseTree):
+                v = v.to_merkle_tree(store)
+            tree[k] = store.hash_object(v)
+        return tree
 
     def hash_tree(self, store):
         return self.hash_object(store, self)
@@ -135,15 +186,7 @@ class BaseTree(MutableMapping):
 
     def _hash_object(self, store, obj, otype):
         return store.hash_object(obj)
-        # key = store.hash_object(obj)
-        # size = sys.getsizeof(obj)
-        # if isinstance(obj, BaseTree):
-        #     ref = TreeRef(key=key, tree_class=obj.__class__.__name__,
-        #          size=size)
-        # else:
-        #     ref = BlobRef(key=key, size=size)
-        # return ref
-
+      
     def iter_subtrees(self):
         for k,v in self.items():
             if isinstance(v, BaseTree):
@@ -161,12 +204,7 @@ class BaseTree(MutableMapping):
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             return False
-        if not sorted(self.keys()) == sorted(other.keys()):
-            return False
-        for k,v in self.items():
-            if not equal(v, other[k]):
-                return False
-        return True
+        return tokenize(self) == tokenize(other)
     
     def _igit_hash_object_(self, odb):
         return self.hash_tree(odb)
@@ -178,7 +216,7 @@ class BaseTree(MutableMapping):
     @abstractclassmethod
     def from_dict(cls, d: Mapping):
         pass
-
+    
     @abstractmethod
     def to_dict(self)->dict:
         pass
@@ -198,7 +236,11 @@ class BaseTree(MutableMapping):
     @abstractmethod 
     def diff(self, other):
         pass
-    
+
+    @abstractmethod 
+    def filter_keys(self, pattern):
+        pass
+
     def diff_edits(self, other):
         diff = self.diff(other)
         return get_edits(diff)
@@ -222,3 +264,8 @@ def get_edits(diff):
         elif isinstance(v, Edit):
             edits[k] = v
     return edits
+
+
+@normalize_token.register(BaseTree)
+def normalize_tree(tree):
+    return tuple((k,normalize_token(tree[k])) for k in sorted(tree.keys()))

@@ -33,6 +33,8 @@ def tokenize(*args, **kwargs):
         args = args + (kwargs,)
     return md5(str(tuple(map(normalize_token, args))).encode()).hexdigest()
 
+def are_equal(a,b):
+    return tokenize(a) == tokenize(b)
 
 normalize_token = Dispatch()
 normalize_token.register(
