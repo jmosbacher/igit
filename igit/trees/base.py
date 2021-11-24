@@ -205,12 +205,6 @@ class BaseTree(MutableMapping):
         if not isinstance(other, self.__class__):
             return False
         return tokenize(self) == tokenize(other)
-        if not sorted(self.keys()) == sorted(other.keys()):
-            return False
-        for k,v in self.items():
-            if not equal(v, other[k]):
-                return False
-        return True
     
     def _igit_hash_object_(self, odb):
         return self.hash_tree(odb)

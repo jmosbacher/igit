@@ -1,7 +1,8 @@
 
 
 class Remote:
-    url: str
+    fetch: str
+    push: str
     kwargs: dict
     heads: dict
     

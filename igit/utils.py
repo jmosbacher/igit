@@ -303,3 +303,4 @@ def class_fullname(o):
     if module == 'builtins':
         return klass.__qualname__ # avoid outputs like 'builtins.str'
     return module + '.' + klass.__qualname__
+

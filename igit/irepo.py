@@ -64,6 +64,7 @@ class IRepo:
     objects: IGitObjectStore
     refs: Refs
     index: ObjectRef = None
+    working_tree: BaseTree = None
 
     def __init__(self, config, key=None, **kwargs):
         if isinstance(config,  pathlib.Path):
@@ -187,8 +188,9 @@ class IRepo:
 
     @property
     def dirty(self):
-        return False
-        return not (self.HEAD_TREE == self.INDEX_TREE)
+        if self.WORKING_TREE is None:
+            return False
+        return (self.WORKING_TREE != self.INDEX_TREE)
 
     def status(self):
         pass
@@ -264,6 +266,7 @@ class IRepo:
         commit = ref.deref(self.objects)
         tree = commit.tree.deref(self.objects)
         self.config.HEAD = key
+        self.working_tree = tree
         return tree
 
     def branch(self, name=None):

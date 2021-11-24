@@ -17,7 +17,6 @@ from ..trees import BaseTree
 from ..hashing import HASH_FUNCTIONS
 from ..compression import COMPRESSORS
 from ..encryption import ENCRYPTORS
-from ..constants import HASH_HOOK_NAME
 from ..tokenize import tokenize
 
 
@@ -148,17 +147,13 @@ class IGitObjectStore(ObjectStorage):
     hash_func: ty.Callable
 
     def __init__(self, d: BinaryStorage, serializer=None, 
-                verify=True):
+                hash_func=None, verify=True,):
         d = IGitObjectStoreMapper(d)
         super().__init__(d, serializer=serializer)
         self.verify = verify
-        
-        self.hash_func = tokenize
+        self.hash_func = HASH_FUNCTIONS.get(hash_func, tokenize) 
 
     def hash(self, obj)->str:
-        hook = getattr(obj, HASH_HOOK_NAME, None)
-        if hook is not None:
-            obj = hook()
         return self.hash_func(obj)
     
     def get_ref(self, key, obj):

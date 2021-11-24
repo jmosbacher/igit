@@ -30,7 +30,7 @@ class ObjectPacket(BaseModel):
 class BaseObjectSerializer(ABC):
     NAME: str
     key: bytes
-    postfix: str = ''
+    suffix: str = ''
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -64,7 +64,7 @@ class JsonObjectSerializer(BaseObjectSerializer):
         
 class PickleObjectSerializer(BaseObjectSerializer):
     NAME = "pickle"
-    postfix: str = '.pkl'
+    suffix: str = '.pkl'
 
     @staticmethod
     def serialize(obj):
@@ -77,7 +77,7 @@ class PickleObjectSerializer(BaseObjectSerializer):
 
 class DillObjectSerializer(BaseObjectSerializer):
     NAME = "dill"
-    postfix: str = '.dill'
+    suffix: str = '.dill'
 
     @staticmethod
     def serialize(obj):
@@ -89,7 +89,7 @@ class DillObjectSerializer(BaseObjectSerializer):
 
 class MsgpackObjectSerializer(BaseObjectSerializer):
     NAME = "msgpack"
-    postfix: str = '.msg'
+    suffix: str = '.msg'
 
     @staticmethod
     def serialize(obj):
