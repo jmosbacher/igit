@@ -51,6 +51,18 @@ class BaseObjectSerializer(ABC):
         mapper = Func(cls.serialize, cls.deserialize, fs_mapper)
         return mapper
 
+class NoopSerializer(BaseObjectSerializer):
+    NAME = None
+
+    @staticmethod
+    def serialize(obj):
+        return obj
+    
+    @staticmethod 
+    def deserialize(data):
+        return data
+
+SERIALIZERS[""] = NoopSerializer
 class JsonObjectSerializer(BaseObjectSerializer):
     NAME = "json"
 

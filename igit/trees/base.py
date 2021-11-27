@@ -85,11 +85,12 @@ class BaseTree(MutableMapping):
         return paths
     
     def sync(self, m: MutableMapping, sep='/'):
-        
         if hasattr(m, 'fs'):
             sep = m.fs.sep
         paths = self.to_paths_dict(sep=sep)
         for k in m.keys():
+            if k.startswith('.'):
+                continue
             if k not in paths:
                 del m[k]
         for k,v in paths.items():
