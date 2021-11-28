@@ -14,5 +14,7 @@ class NoOpEncryptor:
 
     def decrypt(self, data):
         return data
-    
+
+ENCRYPTORS["noop"] = NoOpEncryptor
 ENCRYPTORS["fernet"] = Fernet
+ENCRYPTORS['default'] = Fernet

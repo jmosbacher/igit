@@ -24,7 +24,7 @@ from .refs import Refs
 from .trees import collect_intervals, BaseTree, LabelTree
 from .models import ObjectRef, CommitRef, TreeRef, RepoIndex, User
 # from .igit import IGit
-from .storage import SubfolderMapper, IGitObjectStore, ObjectStorage, BinaryStorage
+from .storage import SubfolderStorage, ContentAddressableStorage, ObjectStorage
 from .utils import ls
 from .visualizations import echarts_graph, get_pipeline_dag
 from .config import Config
@@ -61,7 +61,7 @@ class IRepo:
 #     description: str
 #     hooks: dict
 #     info: str
-    objects: IGitObjectStore
+    objects: ContentAddressableStorage
     refs: Refs
     index: ObjectRef = None
     working_tree: BaseTree = None
@@ -72,31 +72,21 @@ class IRepo:
         if isinstance(config, str):
             config = os.path.join(config, CONFIG_NAME)
             with fsspec.open(config, "rb") as f:
-                config = Config.parse_raw(f.read())
+                data = f.read()
+                if key is not None:
+                    data = ENCRYPTORS['default'](key=key).decrypt(data)
+                config = Config.parse_raw(data)
         if not isinstance(config, Config):
             raise TypeError("config must be a valid path or Config object")
 
         repo = fsspec.get_mapper(config.root_path, **kwargs)
         
-        encryptor_class = ENCRYPTORS.get(config.encryption, None)
-        if encryptor_class is not None and key is not None:
-            encryptor = encryptor_class(key)
-        else:
-            encryptor = None
-
-        igit_folder = SubfolderMapper(config.igit_path, repo)
-
-        objects_store = BinaryStorage(igit_folder, 
-                     compressor=config.compression,
-                     encryptor=encryptor)
-        objects = IGitObjectStore(d=objects_store,
-                                 serializer=config.serializer,)
-        refs = Refs(SubfolderMapper(config.refs_path, repo))
+        igit_folder = SubfolderStorage(repo, name=config.igit_path)
 
         self.config = config
-        self.index = ObjectStorage(SubfolderMapper('index', repo), serializer=config.serializer,)
-        self.objects = objects
-        self.refs = refs
+        self.index = config.get_index(igit_folder)
+        self.objects = config.get_objects(igit_folder)
+        self.refs = config.get_refs(igit_folder)
         self.fstore = repo
 
     def __getitem__(self, name):
@@ -128,8 +118,8 @@ class IRepo:
                          user=user, root_path=path, **kwargs)
         storage[CONFIG_NAME] = config.json(indent=3).encode()
         
-        return cls(config, key=key, connection_kwargs=connection_kwargs)
-        
+        repo = cls(config, key=key, connection_kwargs=connection_kwargs)
+        return repo
 
     @classmethod
     def clone(cls, source, target=None, branch="master", **kwargs):
@@ -188,7 +178,7 @@ class IRepo:
 
     @property
     def dirty(self):
-        if self.WORKING_TREE is None:
+        if self.working_tree is None:
             return False
         return (self.WORKING_TREE != self.INDEX_TREE)
 
@@ -241,11 +231,14 @@ class IRepo:
         parents = ()
         if self.HEAD is not None:
             parents = (self.HEAD, )
-        tree = self.objects.hash_object(self.INDEX_TREE)
-        commit = Commit(parents=parents, tree=tree, message=message,
+        tref = self.objects.hash_object(self.INDEX_TREE)
+        commit = Commit(parents=parents, tree=tref, message=message,
                         author=author, commiter=commiter, timestamp=int(time.time()))
         cref = self.hash_object(commit)
         self.refs.heads[self.config.HEAD] = cref
+        if self.working_tree is not None:
+            self.working_tree = self.INDEX_TREE
+        
         return cref
     
     def checkout(self, key, branch=False):
@@ -267,6 +260,7 @@ class IRepo:
         tree = commit.tree.deref(self.objects)
         self.config.HEAD = key
         self.working_tree = tree
+        tree.sync(self.index)
         return tree
 
     def branch(self, name=None):
@@ -400,15 +394,12 @@ class IRepo:
         app = igit.server.make_app(self.location)
         uvicorn.run(app, host="0.0.0.0", port=5000, log_level="info")
 
-    def save(self):
+    def save(self, key=None):
         # self.ostore["working_tree"] = self.WORKING_TREE
-        self.fstore[CONFIG_NAME] = self.config.json(indent=3).encode()
-      
-    def load(self):
-        # tree = self.ostore.get("working_tree", None)
-        # if tree is not None:
-            # self.working_tree = tree
-        self.config = Config.parse_raw(self.fstore[CONFIG_NAME])
+        data = self.config.json(indent=3).encode()
+        if key is not None:
+            data = ENCRYPTORS['default'](key=key).encrypt(data)
+        self.fstore[CONFIG_NAME] = data
 
     def browse_history(self):
         if self.HEAD is None:
@@ -418,7 +409,6 @@ class IRepo:
         pipeline.define_graph(dag)
         return pipeline
     
-
     def browse_files(self):
         from fsspec.gui import FileSelector
         sel = FileSelector()

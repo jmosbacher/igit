@@ -1,14 +1,16 @@
 
+from os import stat
 import zlib
 
 COMPRESSORS = {}
 
 class NoOpCompressor:
-
-    def compress(self, data):
+    @staticmethod
+    def compress(data):
         return data
 
-    def decompress(self, data):
+    @staticmethod
+    def decompress(data):
         return data
 
 COMPRESSORS["noop"] = NoOpCompressor
