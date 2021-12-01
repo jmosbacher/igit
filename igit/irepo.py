@@ -1,40 +1,36 @@
 import os
+import pathlib
 import sys
 import time
-import fsspec
-import pathlib
-
-from datetime import datetime
-from collections.abc import Mapping
 from collections import Counter
+from collections.abc import Mapping
+from datetime import datetime
+from tokenize import tokenize
 
+import fsspec
+
+from igit import storage
 from igit.storage import object_store
 
-
-# from .object_store import ObjectStore
-from .models import ObjectRef, Commit, Tag, AnnotatedTag, User, CommitRef
-from .refs import Refs
-from .trees import BaseTree, collect_intervals
-from .diffs import Diff, has_diffs
 from .config import Config
-from .utils import roundrobin
-
-# from .object_store import ObjectStore
-from .refs import Refs
-from .trees import collect_intervals, BaseTree, LabelTree
-from .models import ObjectRef, CommitRef, TreeRef, RepoIndex, User
-# from .igit import IGit
-from .storage import SubfolderStorage, ContentAddressableStorage, ObjectStorage
-from .utils import ls
-from .visualizations import echarts_graph, get_pipeline_dag
-from .config import Config
-from .encryption import ENCRYPTORS
 from .constants import CONFIG_NAME
-from tokenize import tokenize
-from igit import storage
+from .diffs import Diff, has_diffs
+from .encryption import ENCRYPTORS
+# from .object_store import ObjectStore
+from .models import (AnnotatedTag, Commit, CommitRef, ObjectRef, RepoIndex,
+                     Tag, TreeRef, User)
+# from .object_store import ObjectStore
+from .refs import Refs
+# from .igit import IGit
+from .storage import ContentAddressableStorage, ObjectStorage, SubfolderStorage
+from .trees import BaseTree, LabelTree, collect_intervals
+from .utils import ls, roundrobin
+from .visualizations import echarts_graph, get_pipeline_dag
+
 
 class CommitError(RuntimeError):
     pass
+
 
 class MergeError(CommitError):
     pass
@@ -56,18 +52,19 @@ def get_object_ref(key, otype, size=-1):
             return class_(key=key, size=size)
     raise KeyError(otype)
 
+
 class IRepo:
     config: Config
-#     description: str
-#     hooks: dict
-#     info: str
+    #     description: str
+    #     hooks: dict
+    #     info: str
     objects: ContentAddressableStorage
     refs: Refs
     index: ObjectRef = None
     working_tree: BaseTree = None
 
     def __init__(self, config, key=None, **kwargs):
-        if isinstance(config,  pathlib.Path):
+        if isinstance(config, pathlib.Path):
             config = str(config)
         if isinstance(config, str):
             config = os.path.join(config, CONFIG_NAME)
@@ -80,7 +77,7 @@ class IRepo:
             raise TypeError("config must be a valid path or Config object")
 
         repo = fsspec.get_mapper(config.root_path, **kwargs)
-        
+
         igit_folder = SubfolderStorage(repo, name=config.igit_path)
 
         self.config = config
@@ -93,12 +90,17 @@ class IRepo:
         return self.INDEX_TREE[name]
 
     def __setitem__(self, key, value):
-        self.add(**{key:value})
+        self.add(**{key: value})
 
     @classmethod
-    def init(cls, path, main_branch="master",
-             username=None, email=None, connection_kwargs={}, **kwargs):
-        if isinstance(path,  pathlib.Path):
+    def init(cls,
+             path,
+             main_branch="master",
+             username=None,
+             email=None,
+             connection_kwargs={},
+             **kwargs):
+        if isinstance(path, pathlib.Path):
             path = "file://" + str(path)
         if isinstance(path, str):
             storage = fsspec.get_mapper(path)
@@ -106,18 +108,21 @@ class IRepo:
             storage = path
         else:
             raise TypeError("repo must be a valid fsspec path or FSMap")
-        
+
         if CONFIG_NAME in storage:
             raise ValueError(f"igit repository already exists in path.")
 
         kwargs = dict(kwargs)
-        
+
         key = kwargs.pop("key", None)
         user = User.get_user(username=username, email=email)
-        config = Config(HEAD=main_branch, main_branch=main_branch,
-                         user=user, root_path=path, **kwargs)
+        config = Config(HEAD=main_branch,
+                        main_branch=main_branch,
+                        user=user,
+                        root_path=path,
+                        **kwargs)
         storage[CONFIG_NAME] = config.json(indent=3).encode()
-        
+
         repo = cls(config, key=key, connection_kwargs=connection_kwargs)
         return repo
 
@@ -141,7 +146,7 @@ class IRepo:
     @classmethod
     def clone(cls, url):
         pass
-    
+
     @property
     def WORKING_TREE(self):
         if self.working_tree is None:
@@ -171,7 +176,7 @@ class IRepo:
     @property
     def INDEX_TREE(self):
         return LabelTree.from_paths_dict(self.index)
-    
+
     @property
     def detached(self):
         return self.config.HEAD not in self.refs.heads
@@ -185,7 +190,11 @@ class IRepo:
     def status(self):
         pass
 
-    def cat_object(self, ref, otype="blob",):
+    def cat_object(
+        self,
+        ref,
+        otype="blob",
+    ):
         if isinstance(ref, ObjectRef):
             return ref.deref(self.objects)
         if isinstance(ref, str):
@@ -204,9 +213,10 @@ class IRepo:
 
     def add(self, **kwargs):
         index = self.INDEX_TREE
-        for k,obj in kwargs.items():
+        for k, obj in kwargs.items():
             if not self.objects.consistent_hash(obj):
-                raise ValueError(f"{k} of type {type(obj)} cannot be consistently hashed.")
+                raise ValueError(
+                    f"{k} of type {type(obj)} cannot be consistently hashed.")
             index[k] = obj
         index.sync(self.index)
         return index
@@ -232,18 +242,23 @@ class IRepo:
         if self.HEAD is not None:
             parents = (self.HEAD, )
         tref = self.objects.hash_object(self.INDEX_TREE)
-        commit = Commit(parents=parents, tree=tref, message=message,
-                        author=author, commiter=commiter, timestamp=int(time.time()))
+        commit = Commit(parents=parents,
+                        tree=tref,
+                        message=message,
+                        author=author,
+                        commiter=commiter,
+                        timestamp=int(time.time()))
         cref = self.hash_object(commit)
         self.refs.heads[self.config.HEAD] = cref
         if self.working_tree is not None:
             self.working_tree = self.INDEX_TREE
-        
+
         return cref
-    
+
     def checkout(self, key, branch=False):
         if self.dirty:
-            raise CommitError("You have uncomitted changes in your staging area.")
+            raise CommitError(
+                "You have uncomitted changes in your staging area.")
         if branch:
             self.branch(key)
         if key in self.refs.heads:
@@ -255,7 +270,8 @@ class IRepo:
         elif isinstance(key, str):
             ref = CommitRef(key=key)
         else:
-            raise TypeError(f'cannot locate branch or commit referenced by {key}')
+            raise TypeError(
+                f'cannot locate branch or commit referenced by {key}')
         commit = ref.deref(self.objects)
         tree = commit.tree.deref(self.objects)
         self.config.HEAD = key
@@ -279,7 +295,10 @@ class IRepo:
         if annotated:
             if tagger is None:
                 tagger = self.config.user
-            atag = AnnotatedTag(key=cref.key, tag=name, tagger=tagger, message=message)
+            atag = AnnotatedTag(key=cref.key,
+                                tag=name,
+                                tagger=tagger,
+                                message=message)
             cref = self.hash_object(atag)
         tag = Tag(key=cref.key)
         self.refs.tags[name] = tag
@@ -288,14 +307,15 @@ class IRepo:
     def merge(self, other, message, commiter=None):
         if self.dirty:
             raise MergeError("You have unstaged changes in your working tree.")
-        common = self.find_common_ancestor(self.HEAD, other).deref_tree(self.objects)
+        common = self.find_common_ancestor(self.HEAD,
+                                           other).deref_tree(self.objects)
         ours = self.get_branch_tree(self.HEAD)
 
         incoming = self.get_branch_tree(other)
 
-        if len( common.diff(ours).diff_edits(common.diff(incoming)) ):
+        if len(common.diff(ours).diff_edits(common.diff(incoming))):
             raise MergeError(f"Cannot merge with {other}, conflicts exist")
-        
+
         if commiter is None:
             commiter = self.config.user
         elif isinstance(commiter, dict):
@@ -305,21 +325,24 @@ class IRepo:
         merged = self.HEAD_TREE.apply_diff(common.diff(incoming))
         merged_ref = merged.hash_tree(self.objects)
 
-        commit = Commit(parents=parents, tree=merged_ref, message=message,
-                         commiter=commiter, timestamp=int(time.time()))
+        commit = Commit(parents=parents,
+                        tree=merged_ref,
+                        message=message,
+                        commiter=commiter,
+                        timestamp=int(time.time()))
         cref = self.hash_object(commit)
         self.refs.heads[self.config.HEAD] = cref
         return cref
-    
+
     def fetch(self, remote=None):
         pass
-    
+
     def pull(self, remote=None):
         pass
-        
+
     def push(self, remote=None):
         pass
-    
+
     def fs_check(self):
         pass
 
@@ -339,7 +362,8 @@ class IRepo:
         if isinstance(obj, Commit):
             obj = obj.tree.deref(self.objects)
         if not isinstance(obj, BaseTree):
-            raise ValueError(f"reference {ref} does not point to a tree or commit.")
+            raise ValueError(
+                f"reference {ref} does not point to a tree or commit.")
         return obj
 
     def diff(self, ref1, ref2, otype="commit"):
@@ -350,7 +374,7 @@ class IRepo:
 
     def get_branch_tree(self, branch):
         if isinstance(branch, CommitRef):
-                ref = branch
+            ref = branch
         elif isinstance(branch, str):
             if branch in self.refs.heads:
                 ref = self.refs.heads[branch]
@@ -408,7 +432,7 @@ class IRepo:
         pipeline, dag = get_pipeline_dag(self.HEAD, self.objects)
         pipeline.define_graph(dag)
         return pipeline
-    
+
     def browse_files(self):
         from fsspec.gui import FileSelector
         sel = FileSelector()

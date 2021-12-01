@@ -2,24 +2,27 @@
 """Tests for `igit` package."""
 # pylint: disable=redefined-outer-name
 
+import random
+
 import pytest
-import random
+
 import igit
-import random
 
 
 @pytest.fixture(scope="module")
 def memory_repo():
     return igit.init("memory://igit_test")
 
+
 def test_interval_tree():
     tree = igit.IntervalTree()
-    tree[1,10] = 9
+    tree[1, 10] = 9
     assert tree[5] == 9
-    tree[5,20] = 11
+    tree[5, 20] = 11
     assert tree[15] == 11
     assert tree[10] == 11
     assert tree[2] == 9
+
 
 def test_label_tree():
     setting2 = igit.LabelTree()
@@ -29,6 +32,7 @@ def test_label_tree():
     assert setting2["subsetting2"] == 9.9
     setting2["subsetting3"] = "text"
     assert setting2["subsetting3"] == "text"
+
 
 def test_commit(memory_repo):
     tree = igit.LabelTree()

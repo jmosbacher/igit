@@ -1,5 +1,5 @@
-
 from .common import ProxyStorage
+
 
 class SubfolderStorage(ProxyStorage):
     name: str
@@ -12,7 +12,7 @@ class SubfolderStorage(ProxyStorage):
 
     @property
     def prefix(self):
-        return  self.name + self.sep
+        return self.name + self.sep
 
     def long_key(self, key):
         if not key.startswith(self.prefix):
@@ -46,14 +46,14 @@ class SubfolderStorage(ProxyStorage):
                 yield self.short_key(k)
 
     def values(self):
-        for k,v in list(self.d.items()):
+        for k, v in list(self.d.items()):
             if k and k.startswith(self.prefix):
                 yield v
 
     def items(self):
         for k in self.d.keys():
             if k and k.startswith(self.prefix):
-                yield self.short_key(k),self.d[k]
+                yield self.short_key(k), self.d[k]
 
     def _do_update(self, items):
         self.d.update((self.long_key(k), v) for k, v in items if k)
@@ -74,7 +74,6 @@ class SubfolderStorage(ProxyStorage):
     __repr__ = __str__
 
 
-
 class SubfolderByKeyStorage(SubfolderStorage):
     n: int
     sep: str
@@ -85,12 +84,12 @@ class SubfolderByKeyStorage(SubfolderStorage):
         self.n = n
         self.sep = sep
         self.name = name
-        
+
     def long_key(self, key):
         return self.sep.join([key[:self.n], key[self.n:]])
 
     def short_key(self, key):
-        return key[:self.n]+key[self.n+len(self.sep):]
+        return key[:self.n] + key[self.n + len(self.sep):]
 
     def __str__(self):
         return f"<SubfolderStorage: key[:{self.n}]{self.sep}key[{self.n}:] -> value>"

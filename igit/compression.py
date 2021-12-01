@@ -1,8 +1,8 @@
-
-from os import stat
 import zlib
+from os import stat
 
 COMPRESSORS = {}
+
 
 class NoOpCompressor:
     @staticmethod
@@ -12,6 +12,7 @@ class NoOpCompressor:
     @staticmethod
     def decompress(data):
         return data
+
 
 COMPRESSORS["noop"] = NoOpCompressor
 COMPRESSORS["zlib"] = zlib

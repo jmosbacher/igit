@@ -1,16 +1,17 @@
 import base64
-import pickle
-import msgpack
-import dill
-import json
 import hashlib
+import json
+import pathlib
+import pickle
 from abc import ABC, abstractmethod, abstractstaticmethod
+
+import dill
+import msgpack
+import msgpack_numpy as m
 from pydantic import BaseModel
 from zict import File, Func
-import pathlib
-import msgpack_numpy as m
-m.patch()
 
+m.patch()
 
 SERIALIZERS = {}
 
@@ -18,15 +19,18 @@ SERIALIZERS = {}
 class DataCorruptionError(KeyError):
     pass
 
+
 class EncoderMismatchError(TypeError):
     pass
+
 
 class ObjectPacket(BaseModel):
     otype: str
     key: str
     content: str
     serializer: str
-        
+
+
 class BaseObjectSerializer(ABC):
     NAME: str
     key: bytes
@@ -39,11 +43,11 @@ class BaseObjectSerializer(ABC):
     @abstractstaticmethod
     def serialize(obj):
         pass
-    
-    @abstractstaticmethod    
+
+    @abstractstaticmethod
     def deserialize(data):
         pass
-    
+
     @classmethod
     def get_mapper(cls, fs_mapper):
         if isinstance(fs_mapper, (str, pathlib.Path)):
@@ -51,29 +55,34 @@ class BaseObjectSerializer(ABC):
         mapper = Func(cls.serialize, cls.deserialize, fs_mapper)
         return mapper
 
+
 class NoopSerializer(BaseObjectSerializer):
     NAME = None
 
     @staticmethod
     def serialize(obj):
         return obj
-    
-    @staticmethod 
+
+    @staticmethod
     def deserialize(data):
         return data
 
+
 SERIALIZERS[""] = NoopSerializer
+
+
 class JsonObjectSerializer(BaseObjectSerializer):
     NAME = "json"
 
     @staticmethod
     def serialize(obj):
         return json.dumps(obj).encode()
-   
+
     @staticmethod
     def deserialize(data):
         return json.loads(data)
-        
+
+
 class PickleObjectSerializer(BaseObjectSerializer):
     NAME = "pickle"
     suffix: str = '.pkl'
@@ -81,7 +90,7 @@ class PickleObjectSerializer(BaseObjectSerializer):
     @staticmethod
     def serialize(obj):
         return pickle.dumps(obj)
-    
+
     @staticmethod
     def deserialize(data):
         return pickle.loads(data)
@@ -94,10 +103,11 @@ class DillObjectSerializer(BaseObjectSerializer):
     @staticmethod
     def serialize(obj):
         return dill.dumps(obj)
-    
+
     @staticmethod
     def deserialize(data):
         return dill.loads(data)
+
 
 class MsgpackObjectSerializer(BaseObjectSerializer):
     NAME = "msgpack"
@@ -110,7 +120,8 @@ class MsgpackObjectSerializer(BaseObjectSerializer):
     @staticmethod
     def deserialize(data):
         return msgpack.loads(data)
- 
+
+
 class MsgpackDillObjectSerializer(BaseObjectSerializer):
     NAME = "msgpack-dill"
 
@@ -120,7 +131,7 @@ class MsgpackDillObjectSerializer(BaseObjectSerializer):
             return msgpack.dumps(obj)
         except:
             return dill.dumps(obj)
-    
+
     @staticmethod
     def deserialize(data):
         try:
@@ -138,7 +149,7 @@ class JsonDillObjectSerializer(BaseObjectSerializer):
             return json.dumps(obj).encode()
         except:
             return dill.dumps(obj)
-    
+
     @staticmethod
     def deserialize(data):
         try:

@@ -1,7 +1,7 @@
-
 from cryptography.fernet import Fernet
- 
+
 ENCRYPTORS = {}
+
 
 class NoOpEncryptor:
     key: bytes
@@ -14,6 +14,7 @@ class NoOpEncryptor:
 
     def decrypt(self, data):
         return data
+
 
 ENCRYPTORS["noop"] = NoOpEncryptor
 ENCRYPTORS["fernet"] = Fernet

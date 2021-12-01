@@ -1,5 +1,7 @@
-from pydantic import BaseModel
 from typing import ClassVar
+
+from pydantic import BaseModel
+
 
 class BaseObject(BaseModel):
     otype: ClassVar = "object"

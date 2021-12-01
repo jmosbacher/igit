@@ -30,11 +30,13 @@ def tokenize(*args, **kwargs):
     True
     """
     if kwargs:
-        args = args + (kwargs,)
+        args = args + (kwargs, )
     return md5(str(tuple(map(normalize_token, args))).encode()).hexdigest()
 
-def are_equal(a,b):
+
+def are_equal(a, b):
     return tokenize(a) == tokenize(b)
+
 
 normalize_token = Dispatch()
 normalize_token.register(
@@ -119,14 +121,13 @@ def normalize_function(func):
 def _normalize_function(func):
     if isinstance(func, Compose):
         first = getattr(func, "first", None)
-        funcs = reversed((first,) + func.funcs) if first else func.funcs
+        funcs = reversed((first, ) + func.funcs) if first else func.funcs
         return tuple(normalize_function(f) for f in funcs)
     elif isinstance(func, (partial, curry)):
         args = tuple(normalize_token(i) for i in func.args)
         if func.keywords:
-            kws = tuple(
-                (k, normalize_token(v)) for k, v in sorted(func.keywords.items())
-            )
+            kws = tuple((k, normalize_token(v))
+                        for k, v in sorted(func.keywords.items()))
         else:
             kws = None
         return (normalize_function(func.func), args, kws)
@@ -159,11 +160,8 @@ def register_pandas():
     @normalize_token.register(pd.MultiIndex)
     def normalize_index(ind):
         codes = ind.codes
-        return (
-            [ind.name]
-            + [normalize_token(x) for x in ind.levels]
-            + [normalize_token(x) for x in codes]
-        )
+        return ([ind.name] + [normalize_token(x) for x in ind.levels] +
+                [normalize_token(x) for x in codes])
 
     @normalize_token.register(pd.Categorical)
     def normalize_categorical(cat):
@@ -215,7 +213,10 @@ def register_pandas():
     # Dtypes
     @normalize_token.register(pd.api.types.CategoricalDtype)
     def normalize_categorical_dtype(dtype):
-        return [normalize_token(dtype.categories), normalize_token(dtype.ordered)]
+        return [
+            normalize_token(dtype.categories),
+            normalize_token(dtype.ordered)
+        ]
 
     @normalize_token.register(pd.api.extensions.ExtensionDtype)
     def normalize_period_dtype(dtype):
@@ -232,13 +233,12 @@ def register_numpy():
             return (x.item(), x.dtype)
         if hasattr(x, "mode") and getattr(x, "filename", None):
             if hasattr(x.base, "ctypes"):
-                offset = (
-                    x.ctypes._as_parameter_.value - x.base.ctypes._as_parameter_.value
-                )
+                offset = (x.ctypes._as_parameter_.value -
+                          x.base.ctypes._as_parameter_.value)
             else:
                 offset = 0  # root memmap's have mmap object as base
             if hasattr(
-                x, "offset"
+                    x, "offset"
             ):  # offset numpy used while opening, and not the offset to the beginning of the file
                 offset += getattr(x, "offset")
             return (
@@ -253,17 +253,15 @@ def register_numpy():
             try:
                 try:
                     # string fast-path
-                    data = hash_buffer_hex(
-                        "-".join(x.flat).encode(
-                            encoding="utf-8", errors="surrogatepass"
-                        )
-                    )
+                    data = hash_buffer_hex("-".join(x.flat).encode(
+                        encoding="utf-8", errors="surrogatepass"))
                 except UnicodeDecodeError:
                     # bytes fast-path
                     data = hash_buffer_hex(b"-".join(x.flat))
             except (TypeError, UnicodeDecodeError):
                 try:
-                    data = hash_buffer_hex(pickle.dumps(x, pickle.HIGHEST_PROTOCOL))
+                    data = hash_buffer_hex(
+                        pickle.dumps(x, pickle.HIGHEST_PROTOCOL))
                 except Exception:
                     # pickling not supported, use UUID4-based fallback
                     data = uuid.uuid4().hex
@@ -309,7 +307,8 @@ def register_scipy():
         (sp.csc_matrix, ("data", "indices", "indptr", "shape")),
         (sp.lil_matrix, ("data", "rows", "shape")),
     ]:
-        normalize_token.register(cls, partial(normalize_sparse_matrix, attrs=attrs))
+        normalize_token.register(cls,
+                                 partial(normalize_sparse_matrix, attrs=attrs))
 
     @normalize_token.register(sp.dok_matrix)
     def normalize_dok_matrix(x):

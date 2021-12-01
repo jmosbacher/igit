@@ -1,13 +1,10 @@
-
 import base64
 import typing as ty
-
 from collections.abc import MutableMapping
 
-
-from .common import ProxyStorage
 from ..models import ObjectPacket
 from ..serializers import SERIALIZERS
+from .common import ProxyStorage
 
 
 class ObjectStorage(ProxyStorage):
@@ -25,16 +22,16 @@ class ObjectStorage(ProxyStorage):
     @staticmethod
     def bytes_to_string(data):
         return base64.b64encode(data).decode()
-    
+
     @staticmethod
     def string_to_bytes(data):
         return base64.b64decode(data)
-    
+
     def serialize(self, obj):
         if self.serializer is None:
             return obj
         return self.serializer.serialize(obj)
-    
+
     def deserialize(self, data):
         if self.serializer is None:
             return data
@@ -47,7 +44,7 @@ class ObjectStorage(ProxyStorage):
             content=self.bytes_to_string(data),
         )
         return pack
-    
+
     def unpack_object(self, packet):
         data = self.string_to_bytes(packet.content)
         obj = self.deserialize(data)
@@ -86,6 +83,3 @@ class ObjectStorage(ProxyStorage):
     def __contains__(self, key):
         key = key + self.suffix
         return key in self.d.keys()
-
-
-

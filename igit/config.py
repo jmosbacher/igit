@@ -3,15 +3,13 @@ from pydantic import BaseModel
 
 from .compression import COMPRESSORS
 from .encryption import ENCRYPTORS
-from .serializers import SERIALIZERS
-from .storage import FunctionStorage, ObjectStorage, SubfolderStorage, \
-                    SubfolderByKeyStorage, ContentAddressableStorage, \
-                    PydanticModelStorage
-
+from .models import CommitRef, Tag, User
 from .refs import Refs
-from .storage import SubfolderStorage
 from .remotes import Remote
-from .models import User, CommitRef, Tag
+from .serializers import SERIALIZERS
+from .storage import (ContentAddressableStorage, FunctionStorage,
+                      ObjectStorage, PydanticModelStorage,
+                      SubfolderByKeyStorage, SubfolderStorage)
 
 
 class Config(BaseModel):
@@ -51,14 +49,15 @@ class Config(BaseModel):
             store = fsspec.get_mapper(store)
         store = SubfolderStorage(store, name='objects')
         encryptor = self.get_encryptor()
-        store = FunctionStorage(store,
-                                encryptor.encrypt,
-                                encryptor.decrypt, )
+        store = FunctionStorage(
+            store,
+            encryptor.encrypt,
+            encryptor.decrypt,
+        )
 
         compressor = self.get_compressor()
         if compressor is not None:
-            store = FunctionStorage(store,
-                                    compressor.compress,
+            store = FunctionStorage(store, compressor.compress,
                                     compressor.decompress)
 
         serializer = self.get_serializer()
@@ -72,7 +71,6 @@ class Config(BaseModel):
         store = SubfolderStorage(store, name='index')
         serializer = self.get_serializer()
         return ObjectStorage(store, serializer=serializer)
-
 
     def get_refs(self, store):
         commits_store = PydanticModelStorage(store, CommitRef)

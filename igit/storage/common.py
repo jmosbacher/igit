@@ -1,10 +1,12 @@
-import fsspec
 import typing as ty
-
 from collections.abc import MutableMapping
+
+import fsspec
+
 
 class DataCorruptionError(KeyError):
     pass
+
 
 class ProxyStorage(MutableMapping):
     """MutableMapping that proxies its data
@@ -12,9 +14,9 @@ class ProxyStorage(MutableMapping):
     to add interception functionality such as
     serialization/encryption/file access etc. 
     """
-    d: ty.Mapping    
+    d: ty.Mapping
 
-    def __init__(self, d):            
+    def __init__(self, d):
         self.d = d
 
     @classmethod
@@ -28,7 +30,7 @@ class ProxyStorage(MutableMapping):
             return self.d.fs
         else:
             return self.d
-    
+
     @property
     def root(self):
         root = ""
@@ -46,7 +48,7 @@ class ProxyStorage(MutableMapping):
         if key not in self.d:
             return default
         return self.d.get(key)
-    
+
     def keys(self):
         return self.d.keys()
 

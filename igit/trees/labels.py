@@ -1,12 +1,11 @@
 import fnmatch
 
-from .base import BaseTree
+from ..diffs import Deletion, Diff, Edit, Insertion
 from ..utils import equal
-from ..diffs import Edit, Insertion, Deletion, Diff
+from .base import BaseTree
 
 
 class LabelTree(BaseTree):
-    
     def __init__(self, mapping=None, **kwargs):
         if mapping is None:
             mapping = dict(**kwargs)
@@ -22,12 +21,12 @@ class LabelTree(BaseTree):
 
     def to_dict(self):
         return dict(self._mapping)
-    
+
     @classmethod
     def from_label_dict(cls, d):
         return cls(d)
-    
-    def to_label_dict(self)->dict:
+
+    def to_label_dict(self) -> dict:
         return self.to_dict()
 
     def filter_keys(self, pattern):
@@ -45,7 +44,7 @@ class LabelTree(BaseTree):
         if self == other:
             return self.__class__()
         hunks = self.__class__()
-        for k,v in self.items():
+        for k, v in self.items():
             if k not in other:
                 hunks[k] = Deletion(old=v)
                 continue
@@ -53,10 +52,10 @@ class LabelTree(BaseTree):
                 if isinstance(v, BaseTree) and isinstance(other[k], BaseTree):
                     d = v.diff(other[k])
                     if len(d):
-                        hunks[k] = d                    
+                        hunks[k] = d
                 else:
                     hunks[k] = Edit(old=v, new=other[k])
-        for k,v in other.items():
+        for k, v in other.items():
             if k not in self:
                 hunks[k] = Insertion(new=v)
         return hunks
@@ -77,13 +76,13 @@ class LabelTree(BaseTree):
 
     def __setitem__(self, key, value):
         self._mapping[key] = value
-    
+
     def __delitem__(self, key):
         del self._mapping[key]
 
     def __iter__(self):
         return iter(self._mapping)
-    
+
     def __len__(self):
         return len(self._mapping)
 
@@ -98,7 +97,7 @@ class LabelTree(BaseTree):
 
     def __repr__(self):
         return BaseTree.__repr__(self)
-        
+
     def __getstate__(self):
         return sorted(self._mapping.items())
 
@@ -108,9 +107,13 @@ class LabelTree(BaseTree):
     def value_viewer(self, k, v):
         import panel as pn
         if isinstance(v, (int, float)):
-            return pn.indicators.Number(name=k, value=v, font_size="35pt", title_size="15pt",
-                     format="{value}", sizing_mode="stretch_both")
-        return pn.Column(f"## {k}",  f"{v}")
+            return pn.indicators.Number(name=k,
+                                        value=v,
+                                        font_size="35pt",
+                                        title_size="15pt",
+                                        format="{value}",
+                                        sizing_mode="stretch_both")
+        return pn.Column(f"## {k}", f"{v}")
 
     def explorer(self, title="tree"):
         import panel as pn
@@ -120,7 +123,7 @@ class LabelTree(BaseTree):
 
     def to_native(self):
         d = {}
-        for k,v in self.items():
+        for k, v in self.items():
             if isinstance(v, BaseTree):
                 d[k] = v.to_native()
             else:

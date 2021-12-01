@@ -1,7 +1,6 @@
-
 from .base import BaseObject
-from .user import User
 from .reference import TreeRef
+from .user import User
 
 
 class RepoIndex(BaseObject):

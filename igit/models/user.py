@@ -1,6 +1,6 @@
+import getpass
 
 from .base import BaseObject
-import getpass
 
 
 class User(BaseObject):

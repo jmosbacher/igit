@@ -1,31 +1,34 @@
 import sys
 import typing as ty
-
 from collections.abc import MutableMapping
 
-from .common import ProxyStorage, DataCorruptionError
-from ..models import TreeRef, BlobRef, ObjectRef, BaseObject
-from ..trees import BaseTree
+from ..models import BaseObject, BlobRef, ObjectRef, TreeRef
 from ..tokenize import tokenize
+from ..trees import BaseTree
+from .common import DataCorruptionError, ProxyStorage
 
 
 class ContentAddressableStorage(ProxyStorage):
     verify: bool
     hash_func: ty.Callable
 
-    def __init__(self, d: MutableMapping, 
-                 verify=True,):
+    def __init__(
+        self,
+        d: MutableMapping,
+        verify=True,
+    ):
         self.d = d
         self.verify = verify
 
-    def hash(self, obj)->str:
+    def hash(self, obj) -> str:
         return tokenize(obj)
-    
+
     def get_ref(self, key, obj):
         size = sys.getsizeof(obj)
         if isinstance(obj, BaseTree):
-            ref = TreeRef(key=key, tree_class=obj.__class__.__name__,
-                 size=size)
+            ref = TreeRef(key=key,
+                          tree_class=obj.__class__.__name__,
+                          size=size)
         elif isinstance(obj, BaseObject):
             otype = obj.otype
             for class_ in ObjectRef.__subclasses__():
@@ -41,15 +44,15 @@ class ContentAddressableStorage(ProxyStorage):
     def hash_object(self, obj, save=True, as_ref=True):
         if isinstance(obj, BaseTree):
             new_obj = obj.__class__()
-            for k,v in obj.items():
+            for k, v in obj.items():
                 new_obj[k] = self.hash_object(v, save=save)
             obj = new_obj
         key = self.hash(obj)
-        if save:
+        if save and key not in self.d:
             self.d[key] = obj
         if as_ref:
             key = self.get_ref(key, obj)
-        return key 
+        return key
 
     def cat_object(self, key, deref=True, recursive=True):
         obj = self.d[key]
@@ -58,10 +61,12 @@ class ContentAddressableStorage(ProxyStorage):
         if self.verify:
             key2 = self.hash_object(obj, save=False, as_ref=False)
             if key2 != key:
-                raise DataCorruptionError(f"Looks like data has been corrupted or\
-                     a different serializer/encryption was used. key: {key}, hash: {key2}")
+                raise DataCorruptionError(
+                    f"Looks like data has been corrupted or\
+                     a different serializer/encryption was used. key: {key}, hash: {key2}"
+                )
         return obj
-    
+
     def get(self, key, default=None):
         if key not in self.d:
             return default
@@ -74,7 +79,7 @@ class ContentAddressableStorage(ProxyStorage):
             if key in k:
                 return self.d[k]
         raise KeyError(key)
-        
+
     def equal(self, *objs):
         return set([self.hash(obj) for obj in objs]) == 1
 

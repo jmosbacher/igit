@@ -1,13 +1,12 @@
-import hashlib
-import json
-import numpy as np
-import dill
-from collections.abc import Mapping, Iterable
 import binascii
 import hashlib
+import json
+from collections.abc import Iterable, Mapping
+
+import dill
+import numpy as np
 
 hashers = []  # In decreasing performance order
-
 
 # Timings on a largish array:
 # - CityHash is 2x faster than MurmurHash
@@ -91,7 +90,7 @@ def hash_buffer(buf, hasher=None):
             return hasher(buf)
         except (TypeError, OverflowError):
             pass
-    raise TypeError("unsupported type for hashing: %s" % (type(buf),))
+    raise TypeError("unsupported type for hashing: %s" % (type(buf), ))
 
 
 def hash_buffer_hex(buf, hasher=None):
@@ -101,14 +100,15 @@ def hash_buffer_hex(buf, hasher=None):
     h = hash_buffer(buf, hasher)
     s = binascii.b2a_hex(h)
     return s.decode()
-    
+
+
 HASH_FUNCTIONS = {}
+
 
 class NumpyJSONEncoder(json.JSONEncoder):
     """ Special json encoder for numpy types
     Edited from mpl3d: mpld3/_display.py
     """
-
     def default(self, obj):
         if hasattr(obj, 'json'):
             return obj.json()
@@ -148,8 +148,10 @@ def hashablize(obj):
     else:
         return obj
 
+
 def sha1_hash(data):
     return hashlib.sha1(data).hexdigest()
+
 
 def container_hash(obj):
     if hasattr(obj, "_igit_hash_") and callable(obj._igit_hash_):
@@ -160,5 +162,6 @@ def container_hash(obj):
     except:
         data = dill.dumps(obj)
     return sha1_hash(data)
+
 
 HASH_FUNCTIONS["sha1"] = container_hash

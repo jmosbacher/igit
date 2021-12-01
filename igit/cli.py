@@ -1,7 +1,9 @@
 """Console script for igit."""
 import sys
-import igit
+
 import click
+
+import igit
 
 
 @click.group()
@@ -11,6 +13,7 @@ def main():
                "igit.cli.main")
     click.echo("See click documentation at https://click.palletsprojects.com/")
     return 0
+
 
 @main.command()
 @click.option('--path', default="./", help='Path to repo.')

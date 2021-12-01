@@ -3,10 +3,11 @@ from typing import Mapping
 from .models import CommitRef, Tag
 from .remotes import Remote
 
+
 class Refs:
-    heads: Mapping[str,CommitRef]
-    tags: Mapping[str,Tag]
-    remotes: Mapping[str,Remote]
+    heads: Mapping[str, CommitRef]
+    tags: Mapping[str, Tag]
+    remotes: Mapping[str, Remote]
 
     def __init__(self, heads, tags=None, remotes=None):
         self.heads = heads
@@ -17,7 +18,6 @@ class Refs:
         if remotes is None:
             remotes = {}
         self.remotes = remotes
-        
 
     def update(self, other):
         self.heads.update(other.heads)
