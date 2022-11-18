@@ -35,7 +35,7 @@ fastapi = {version = "^0.63.0", extras = ["server"]}
 msgpack = "^1.0.2"
 hypothesis = {extras = ["numpy", "pandas"], version = "^6.10.1"}
 cryptography = "^3.4.7"
-pymongo = "^3.11.3"
+pymongo = ">=3.11.3,<5.0.0"
 dill = "^0.3.3"
 msgpack-numpy = "^0.4.7"
 networkx = "^2.6.1"
